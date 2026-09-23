@@ -32,6 +32,9 @@ dependencies:
   # the shared Dart API on native targets.
   flutter_webxdc_web:
     path: flutter_webxdc_web
+  # Native platform implementation utilizing flutter_inappwebview
+  flutter_webxdc_webview:
+    path: flutter_webxdc_webview
 
 dev_dependencies:
   flutter_test:
@@ -47,6 +50,14 @@ flutter:
     platforms:
       web:
         default_package: flutter_webxdc_web
+      android:
+        default_package: flutter_webxdc_webview
+      ios:
+        default_package: flutter_webxdc_webview
+      macos:
+        default_package: flutter_webxdc_webview
+      windows:
+        default_package: flutter_webxdc_webview
 
   # To add assets to your package, add an assets section, like this:
   # assets:

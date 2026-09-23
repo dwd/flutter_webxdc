@@ -19,12 +19,16 @@ to enable interactive, embeddable mini apps (`.xdc` archives) in Flutter applica
 ## Status
 
 This repository implements the federated package split described in
-[doc/design.md](doc/design.md#2-target-federated-package-layout) up through a
-runnable in-memory backend plus an initial Flutter Web iframe host. It targets
-the following platforms:
-- **Android**
-- **Desktop** (Linux, macOS, Windows)
-- **Web**
+[doc/design.md](doc/design.md#2-target-federated-package-layout) providing an in-memory backend, a native platform integration using `flutter_inappwebview` (`flutter_webxdc_webview`), and an initial Flutter Web iframe host (`flutter_webxdc_web`). 
+
+It targets the following platforms:
+- **Android**, **iOS**, **macOS**, **Windows** — via `flutter_webxdc_webview`
+  (`flutter_inappwebview`-based native hosting).
+- **Web** — via `flutter_webxdc_web` (sandboxed iframe + `postMessage`
+  hosting).
+- **Linux** is not yet covered: `flutter_inappwebview` does not support it;
+  see [doc/design.md](doc/design.md#2-target-federated-package-layout) for
+  the follow-up plan.
 
 Packages that exist today:
 - **`flutter_webxdc`** (this package) — the app-facing API:
@@ -41,21 +45,20 @@ Packages that exist today:
     realtime-channel capability detection, and JS→host event streams.
 - **[`flutter_webxdc_memory`](flutter_webxdc_memory/README.md)** — the first
   concrete `WebxdcPlatform` implementation. Hosts `.xdc` assets and the
-  update bridge entirely in memory (no WebView/browser), registers via
-  `MemoryWebxdcPlatform.registerWith()`, and is the default backend
-    auto-installed by `FlutterWebxdc.ensureInitialized()`.
+  update bridge entirely in memory (no WebView/browser).
 - **[`flutter_webxdc_web`](flutter_webxdc_web/README.md)** — initial Web
   `WebxdcPlatform` implementation, registered automatically through the root
-  package's Flutter Web plugin metadata. It hosts each app in a sandboxed
-  iframe, injects the `window.webxdc` bridge, and uses validated
-  `postMessage` traffic. The embedding Web app calls `attachToElement()` to
-  place an opened session's iframe in its DOM.
+  package's Flutter Web plugin metadata.
+- **[`flutter_webxdc_webview`](flutter_webxdc_webview/README.md)** — native `WebxdcPlatform` implementation utilizing `flutter_inappwebview`, supporting Android, iOS, macOS, and Windows. It injects the `window.webxdc` JS bridge and dynamically serves extracted archive content through a local `HttpServer` loopback.
 
-Not implemented yet: the four native platform packages
-(`flutter_webxdc_android`, `_linux`, `_macos`, `_windows`) and their
-`flutter_inappwebview` hosts. The Web implementation has documented asset
-rewriting and `sendToChat` file-payload limitations; see
-[doc/design.md](doc/design.md) for the detailed architecture and roadmap.
+Not implemented yet: a Linux native host (`flutter_inappwebview` does not
+support Linux), the shared `WebxdcPlatform` interface does not yet expose a
+way to render the native WebView widget (`flutter_webxdc_webview` exposes
+this as package-specific `buildWebView(instanceId)` API instead), and
+`flutter_webxdc_webview`'s `sendToChat`/`importFiles` are stubs. The Web
+implementation has documented asset rewriting and `sendToChat` file-payload
+limitations. See [doc/design.md](doc/design.md) for the detailed
+architecture, current limitations, and roadmap.
 
 ## Usage
 
@@ -82,18 +85,24 @@ session.deliverPeerUpdate({'payload': {'counter': 2}}); // from a peer
 await session.dispose();
 ```
 
-Native WebView hosting is not available yet. On Flutter Web the plugin
-registrant installs `WebWebxdcPlatform`; elsewhere `WebxdcSession` falls back
-to `MemoryWebxdcPlatform`, keeping the full shared plugin path testable today.
-See [doc/design.md](doc/design.md) for Web usage and the planned native
-platform packages.
+On Flutter Web the plugin registrant installs `WebWebxdcPlatform`; on
+Android/iOS/macOS/Windows it installs `WebviewWebxdcPlatform`
+(`flutter_webxdc_webview`), which additionally requires calling
+`WebviewWebxdcPlatform.buildWebView(instanceId)` to obtain the `InAppWebView`
+widget to render in your widget tree. If neither registers itself (e.g. on
+Linux, or in plain `flutter test` runs), `WebxdcSession` falls back to
+`MemoryWebxdcPlatform`, keeping the full shared plugin path testable without
+a device/browser. See [doc/design.md](doc/design.md) and
+[flutter_webxdc_webview's README](flutter_webxdc_webview/README.md) for
+native usage details.
 
 ## Additional information
 
 Please refer to [doc/design.md](doc/design.md) for the target architecture,
-the JS API contract, and testing strategy. Contributions are welcome for the
-remaining federated platform packages (`flutter_webxdc_android`, `_linux`,
-`_macos`, `_windows`, `_web`), which should mirror
+the JS API contract, and testing strategy. Contributions are welcome for a
+Linux native host and for closing the remaining gaps in
+[`flutter_webxdc_webview`](flutter_webxdc_webview/README.md) (`sendToChat`,
+`importFiles`, exposing `buildWebView` through the shared `WebxdcPlatform`
+interface); new platform packages should mirror
 [`flutter_webxdc_memory`](flutter_webxdc_memory/README.md)'s structure
-(`registerWith()`, extends `WebxdcPlatform`, emits JS-bridge events) while
-swapping the in-memory host for a real WebView or iframe bridge.
+(`registerWith()`, extends `WebxdcPlatform`, emits JS-bridge events).

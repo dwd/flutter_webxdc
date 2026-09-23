@@ -1,0 +1,33 @@
+name: flutter_webxdc_webview
+description: "InAppWebView implementation of the flutter_webxdc plugin."
+version: 0.0.1
+publish_to: none
+
+environment:
+  sdk: ^3.2.0
+  flutter: ">=3.16.0"
+
+flutter:
+  plugin:
+    implements: flutter_webxdc
+    platforms:
+      android:
+        dartPluginClass: WebviewWebxdcPlugin
+      ios:
+        dartPluginClass: WebviewWebxdcPlugin
+      macos:
+        dartPluginClass: WebviewWebxdcPlugin
+      windows:
+        dartPluginClass: WebviewWebxdcPlugin
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_inappwebview: ^6.1.5
+  flutter_webxdc_platform_interface:
+    path: ../flutter_webxdc_platform_interface
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0

@@ -44,15 +44,9 @@ workspace) is:
 graph TD
   App[flutter_webxdc<br/>app-facing Dart API] --> Interface[flutter_webxdc_platform_interface<br/>WebxdcPlatform contract]
   Interface --> Memory[flutter_webxdc_memory<br/>in-memory host / default]
-  Interface --> Android[flutter_webxdc_android<br/>flutter_inappwebview host]
-  Interface --> Windows[flutter_webxdc_windows<br/>flutter_inappwebview host]
-  Interface --> Linux[flutter_webxdc_linux<br/>flutter_inappwebview host]
-  Interface --> MacOS[flutter_webxdc_macos<br/>flutter_inappwebview host]
+  Interface --> Webview[flutter_webxdc_webview<br/>flutter_inappwebview host<br/>Android/iOS/macOS/Windows]
   Interface --> Web[flutter_webxdc_web<br/>iframe + postMessage bridge]
-  Android --> JSBridge1[window.webxdc JS shim]
-  Windows --> JSBridge1
-  Linux --> JSBridge1
-  MacOS --> JSBridge1
+  Webview --> JSBridge1[window.webxdc JS shim via UserScript + callHandler]
   Web --> JSBridge2[window.webxdc JS shim via postMessage]
 ```
 
@@ -61,12 +55,11 @@ graph TD
 | `flutter_webxdc`                    | App-facing Dart API: `WebxdcSession`/`FlutterWebxdc`, `WebxdcManifest` parsing, `.xdc` zip reading, `WebxdcController`. Platform-agnostic. |
 | `flutter_webxdc_platform_interface` | Abstract `WebxdcPlatform` contract (method-channel/JS message shapes), `WebxdcUpdate` model, JS-bridge event types. No platform code.               |
 | `flutter_webxdc_memory`             | **Implemented.** In-memory `WebxdcPlatform` used as the default/test backend (no WebView/browser). Reference structure for native/Web packages. |
-| `flutter_webxdc_android`            | Android implementation, hosts `.xdc` content in a `flutter_inappwebview` `InAppWebView`, injects `window.webxdc` via `addJavaScriptHandler`.      |
-| `flutter_webxdc_linux` / `_macos` / `_windows` | Desktop implementations, same `flutter_inappwebview` approach as Android (its desktop WebView backends expose the same JS-bridge API).|
+| `flutter_webxdc_webview`            | **Implemented.** Single native `flutter_inappwebview`-based `WebxdcPlatform`, registered as the `default_package` for Android, iOS, macOS, and Windows (see the note on Linux below). Hosts each `.xdc` app's extracted files on a per-instance loopback `HttpServer`, injects `window.webxdc` via a `UserScript`, and bridges JS calls through `addJavaScriptHandler`/`callHandler`. |
 | `flutter_webxdc_web`                | **Implemented initial host.** Hosts `.xdc` assets in a sandboxed `srcdoc` `<iframe>`, injects `window.webxdc`, and bridges it via nonce-bound JSON `postMessage`; see the current limitations below. |
 
 **Note on current repository state:** the federated package **split is
-underway**. Four independently-`pub get`-able packages exist in this
+underway**. Five independently-`pub get`-able packages exist in this
 repository (path dependencies stand in for what would be separate pub.dev
 releases / melos-managed versions once published):
 
@@ -106,12 +99,35 @@ releases / melos-managed versions once published):
   `sendUpdateEvents`/`sendToChatEvents`, replays updates after the iframe
   signals ready, and uses the browser picker for `importFiles`. The host calls
   `attachToElement()` to place the iframe in its DOM.
+- `flutter_webxdc_webview` (`flutter_webxdc_webview/` at the repo root) — an
+  **implemented native `flutter_inappwebview` host**, registered as the
+  root package's `default_package` for `android`, `ios`, `macos`, and
+  `windows`. For each `loadApp` call it starts a per-instance loopback
+  `HttpServer` (`WebxdcServer`) that serves the extracted `.xdc` file tree
+  over `http://127.0.0.1:<port>/`, rewriting `/` to `index.html` and
+  attaching a `Content-Security-Policy` header on every response
+  (`WebxdcServer.buildContentSecurityPolicy`) that blocks external
+  `connect-src`/`img-src`/`media-src`/`frame-src` by default and widens
+  them to allow `https:`/`wss:` origins when `request_internet_access` is
+  `true` (see [§3](#3-sandboxing--security-requirements)). It injects
+  `window.webxdc` via an `AT_DOCUMENT_START` `UserScript` and bridges
+  `sendUpdate`/`setUpdateListener`/`sendToChat` through
+  `addJavaScriptHandler`/`callHandler`. Consumers obtain the `InAppWebView`
+  widget via `WebviewWebxdcPlatform.buildWebView(instanceId)` (not yet part
+  of the shared `WebxdcPlatform` interface — see limitations below).
 
-The four native platform packages (`flutter_webxdc_android`, `_linux`,
-`_macos`, `_windows`) still do **not** exist — no `flutter_inappwebview`
-dependency or native WebView hosting exists yet. Until the Flutter Web
-registrant or another platform registers itself, the memory backend is the
-active `WebxdcPlatform.instance`.
+**Linux** is intentionally not covered by `flutter_webxdc_webview`:
+`flutter_inappwebview` 6.x does not support Linux, so there is currently no
+native WebView backend for that platform; a Linux-specific package (or an
+alternative WebView binding) remains a follow-up.
+
+**Known limitations of `flutter_webxdc_webview`** (tracked as follow-up
+work, not yet implemented): `sendToChat` and `importFiles` are stubs
+(`sendToChat` is a no-op, `importFiles` always returns `[]`); `buildWebView`
+is package-specific API rather than part of `WebxdcPlatform`, so callers
+must cast `WebxdcPlatform.instance` to `WebviewWebxdcPlatform` to render the
+view; and `deliverUpdateToApp` silently drops updates that arrive before
+`onWebViewCreated` has run (i.e. before the `InAppWebViewController` exists).
 
 ### WebView technology decision: `flutter_inappwebview`
 
@@ -119,9 +135,12 @@ We choose [`flutter_inappwebview`](https://pub.dev/packages/flutter_inappwebview
 over `webview_flutter` plus assorted desktop add-ons because it:
 
 - exposes a single, consistent JS-bridge API (`addJavaScriptHandler` /
-  `evaluateJavascript`) across Android, Windows, Linux, and macOS — this is
-  exactly what's needed to inject `window.webxdc` and intercept
-  `sendUpdate`/`importFiles` calls uniformly across those four platforms;
+  `evaluateJavascript`) across Android, Windows, and macOS (and iOS) — this
+  is exactly what's needed to inject `window.webxdc` and intercept
+  `sendUpdate`/`importFiles` calls uniformly across those platforms via a
+  single `flutter_webxdc_webview` package (see the repository-state note
+  above; **Linux is not supported by `flutter_inappwebview` 6.x** and is
+  excluded for now);
 - supports the content-security and isolation controls (custom URL schemes,
   disabling arbitrary network access, restricting navigation) needed to
   enforce the sandboxing requirements in [§3](#3-sandboxing--security-requirements).
@@ -152,9 +171,9 @@ that is injected into `window.webxdc` for the mini app to read.
 
 `webxdc.js` itself (the script that defines `window.webxdc`) is injected by
 the **host messenger**, never bundled inside the `.xdc` file — each platform
-package (`flutter_webxdc_android`, `_web`, …) is responsible for injecting an
-equivalent shim that forwards these calls to the `WebxdcPlatform` contract in
-`flutter_webxdc_platform_interface`.
+package (`flutter_webxdc_webview`, `flutter_webxdc_web`, …) is responsible
+for injecting an equivalent shim that forwards these calls to the
+`WebxdcPlatform` contract in `flutter_webxdc_platform_interface`.
 
 ### 2.1a `WebxdcPlatform`: the platform-implementation contract
 
@@ -183,13 +202,16 @@ down (host-facing rather than JS-facing):
 Every method's default body throws `UnimplementedError`, and
 `WebxdcPlatform.instance` throws a `StateError` until some platform package
 calls `WebxdcPlatform.instance = ...` (matching the `PlatformInterface`
-pattern used by e.g. `shared_preferences_platform_interface`). The first
-concrete implementation is `MemoryWebxdcPlatform` in
-`flutter_webxdc_memory` (see the repository-state note above); it also
-overrides the JS→host event streams. The method signatures above remain a
-first-draft contract based on the JS API table and may still change once an
-actual `flutter_inappwebview`/iframe implementation is attempted; treat
-them as scaffolding, not a frozen ABI.
+pattern used by e.g. `shared_preferences_platform_interface`). Three
+concrete implementations now exist: `MemoryWebxdcPlatform`
+(`flutter_webxdc_memory`), `WebWebxdcPlatform` (`flutter_webxdc_web`), and
+`WebviewWebxdcPlatform` (`flutter_webxdc_webview`, the native
+`flutter_inappwebview` host); see the repository-state note above. All
+three override the JS→host event streams. The method signatures above
+remain a first-draft contract and may still change — for example,
+`WebviewWebxdcPlatform.buildWebView(instanceId)` (needed to actually render
+the hosted app) is not yet part of this shared interface — so treat them
+as scaffolding, not a frozen ABI.
 
 In addition to the methods above, `WebxdcPlatform` exposes two broadcast
 streams that platform implementations emit when mini-app JS calls into the
@@ -334,10 +356,15 @@ webxdc "messenger implementation" requirements:
   bundled/extracted assets (never a live network URL), and outgoing network
   requests from the web view are blocked unless the manifest sets
   `request_internet_access = true` (see the [`manifest.toml` schema](#22-manifesttoml-schema-and-webxdcmanifest-data-model)).
-  On Android/Desktop this is enforced via `flutter_inappwebview`
-  request interception; on Web it is enforced via the iframe's `Content-Security-Policy`
-  (`connect-src 'none'` unless internet access is granted) and `sandbox`
-  attribute.
+  On the native `flutter_inappwebview` host (`flutter_webxdc_webview`) this
+  is enforced by a `Content-Security-Policy` response header
+  (`WebxdcServer.buildContentSecurityPolicy`) attached to every asset
+  served by its per-instance loopback `HttpServer`: `connect-src`/
+  `img-src`/`media-src`/`frame-src` are restricted to `'self'` plus local
+  `data:`/`blob:` URIs by default, and widened to `https:`/`wss:` only when
+  `request_internet_access = true`. On Web it is enforced via the iframe's
+  `Content-Security-Policy` (`connect-src 'none'` unless internet access is
+  granted) and `sandbox` attribute.
 - **Isolated storage per chat/app.** Each `.xdc` instance's persisted state
   (its own `localStorage`/IndexedDB-equivalent, cached update payloads) is
   scoped per chat-message + app identity, never shared between different
@@ -430,13 +457,26 @@ Platform-specific test scoping follows `AGENTS.md`.
   for the planned migration. These gaps are known Web-target deviations, not
   silent permission grants: the iframe CSP still blocks network requests when
   `request_internet_access` is false.
-- **`flutter_inappwebview` is a third-party dependency.** If its Desktop
-  platform coverage regresses in a future release, the fallback plan is to
-  swap in per-platform native WebView packages (e.g. platform-specific
-  `webview_flutter` backends) behind the same `WebxdcPlatform` contract —
-  this is recorded here as an open question rather than solved now, since the
-  federated `platform_interface` package isolates the rest of the plugin from
-  this choice.
+- **`flutter_inappwebview` is a third-party dependency, and already lacks
+  Linux support today** (see the repository-state note in §2), not just as
+  a hypothetical future regression. If its coverage of the remaining
+  platforms regresses further, the fallback plan is to swap in
+  per-platform native WebView packages (e.g. platform-specific
+  `webview_flutter` backends, or a dedicated Linux WebView binding) behind
+  the same `WebxdcPlatform` contract — this is recorded here as an open
+  question rather than solved now, since the federated
+  `platform_interface` package isolates the rest of the plugin from this
+  choice.
+- **`flutter_webxdc_webview` is not yet end-to-end functional.**
+  `sendToChat` is a no-op and `importFiles` always returns `[]` (the
+  native file-picker bridge is not implemented); rendering the hosted app
+  requires calling `WebviewWebxdcPlatform.buildWebView(instanceId)`
+  directly, since it is not yet part of the shared `WebxdcPlatform`
+  interface; and updates delivered before the underlying
+  `InAppWebViewController` is created (i.e. before the widget has been
+  built/mounted) are silently dropped rather than queued. These are
+  tracked as follow-up work, not silent behavior changes to the documented
+  contract.
 - **`.xdc` size/complexity limits** (max archive size, resource limits for
   long-running mini apps) are not yet specified in this document; upstream
   Delta Chat currently caps `.xdc` files at 640 kB, but this is an

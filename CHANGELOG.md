@@ -1,5 +1,26 @@
 ## 0.0.1 (In Development)
 
+* Fix `flutter_webxdc_webview`'s `WebxdcServer` Content-Security-Policy so
+  `request_internet_access = true` actually widens `connect-src`/`img-src`/
+  `media-src`/`frame-src` to allow `https:`/`wss:` origins, instead of
+  leaving external network access blocked regardless of the manifest flag.
+  The policy is now built by a dedicated, unit-testable
+  `WebxdcServer.buildContentSecurityPolicy(bool)`. Added
+  `test/webxdc_server_test.dart` in `flutter_webxdc_webview`, exercising the
+  loopback server directly over `HttpClient` (no device/browser): the
+  `/` → `index.html` rewrite, content-type mapping, 404 handling, and the
+  CSP header for both `request_internet_access` states.
+* Correct `doc/design.md` and `README.md` to accurately describe
+  `flutter_webxdc_webview` as implemented (native `flutter_inappwebview`
+  host for Android/iOS/macOS/Windows, no Linux support) instead of still
+  claiming native platform packages don't exist; also documented its real
+  remaining gaps (`sendToChat`/`importFiles` stubs, `buildWebView` not yet
+  part of the shared `WebxdcPlatform` interface, updates dropped before the
+  WebView controller is created).
+* Add `flutter_webxdc_webview/`, the initial real native platform package utilizing `flutter_inappwebview`.
+  The root package declares it as its default package for Android, iOS, macOS, and Windows. 
+  It creates a local `HttpServer` loopback to dynamically serve extracted `.xdc` assets, 
+  and injects the `window.webxdc` JS bridge.
 * Add `flutter_webxdc_web/`, the initial real Flutter Web platform package.
   The root package declares it as its Web `default_package`, so Flutter's
   plugin registrant installs `WebWebxdcPlatform`. It hosts apps in sandboxed
@@ -46,9 +67,6 @@
   `index.html` mandatory in a `.xdc` archive, matching the upstream format
   spec and the new `WebxdcArchive` reader (previously documented as the
   reverse).
-* Native Android/Desktop/Web hosting packages (`flutter_webxdc_android`,
-  `_linux`, `_macos`, `_windows`, `_web`) and real JS injection are still
-  not implemented; see `doc/design.md` for the target architecture.
 * Initial design documentation (`doc/design.md`) and basic test fixtures
   (`test/fixtures/`) added to define the target federated plugin architecture,
   JS bridge contract, and manifest schema.
