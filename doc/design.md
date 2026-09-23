@@ -63,12 +63,15 @@ graph TD
 | `flutter_webxdc_linux` / `_macos` / `_windows` | Desktop implementations, same `flutter_inappwebview` approach as Android (its desktop WebView backends expose the same JS-bridge API).|
 | `flutter_webxdc_web`                | Web implementation: hosts `.xdc` assets in a sandboxed `<iframe>`, bridges `window.webxdc` via `postMessage` (`dart:js_interop`/`package:web`), since there is no WebView to embed a JS handler into. |
 
-**Note on current repository state:** the repository is still a single
-plain Dart/Flutter package skeleton (`pubspec.yaml` has no `flutter: plugin:`
-section, `lib/flutter_webxdc.dart` only has a placeholder `Calculator`
-class). The federated-package split above is the *target* architecture to
-migrate to as the platform-hosting code is implemented in a follow-up task;
-this task only records the decision and does not scaffold the packages.
+**Note on current repository state:** the repository currently implements
+only the platform-free half of this diagram — the `flutter_webxdc` box
+(`WebxdcManifest`, `WebxdcArchive`, `WebxdcUpdate`, `WebxdcController`, see
+§2.1/§2.2/§4 below) lives directly in `lib/src/` of the single existing
+package; `pubspec.yaml` still has no `flutter: plugin:` section. The
+federated-package split (`flutter_webxdc_platform_interface` and the five
+per-platform packages, plus `flutter_inappwebview`/iframe hosting) remains
+the *target* architecture for a follow-up task — no platform code, JS
+injection, or web view/iframe hosting exists yet.
 
 ### WebView technology decision: `flutter_inappwebview`
 
@@ -115,9 +118,14 @@ equivalent shim that forwards these calls to the `WebxdcPlatform` contract in
 
 ### 2.2 `manifest.toml` schema and `WebxdcManifest` data model
 
-Every `.xdc` zip MUST contain a `manifest.toml` at its root. Stable spec
-fields, plus the plugin-level `*_api_version` fields the platform interface
-will use for its own capability negotiation (see the caveat below the table):
+Per the upstream `.xdc` format page, `index.html` is the one mandatory
+entry point; `manifest.toml` at the archive root is **optional** (an
+earlier revision of this document said the opposite — that wording has
+been corrected to match both upstream and the `WebxdcArchive` reader in
+[§2.3](#23-xdc-zip-container-reader)). When present, `manifest.toml` is
+parsed against the following schema, plus the plugin-level
+`*_api_version` fields the platform interface will use for its own
+capability negotiation (see the caveat below the table):
 
 | Field | Type | Required | Default | Notes |
 | ----- | ---- | -------- | ------- | ----- |
@@ -138,8 +146,13 @@ will use for its own capability negotiation (see the caveat below the table):
 > optional/tolerant-parse fields and MUST NOT fail to load an `.xdc` app
 > solely because they are absent — see also [§6](#6-open-questions--limitations).
 
-Planned Dart data model (`flutter_webxdc`, to be implemented in a later
-task):
+**Implemented** in `lib/src/webxdc_manifest.dart` as `WebxdcManifest`, with
+`WebxdcManifest.fromToml(String source)` (raw TOML text, via `package:toml`)
+and `WebxdcManifest.fromMap(Map<String, dynamic> toml)` (already-decoded
+map) constructors. Both tolerate missing optional fields per the table
+above and throw `FormatException` if `name` is missing/empty/non-string, if
+the TOML itself is malformed, or if a present optional field has the wrong
+type (see `test/flutter_webxdc_test.dart`):
 
 ```dart
 /// Parsed representation of a `.xdc` app's `manifest.toml`.
@@ -168,14 +181,57 @@ class WebxdcManifest {
   /// Optional. Highest platform-interface API version the app was tested
   /// against.
   final int? maxApiVersion;
-
-  /// Parses a `manifest.toml` document, tolerating missing optional fields.
-  /// Throws a [FormatException] if `name` is missing or not a string.
-  factory WebxdcManifest.fromToml(Map<String, dynamic> toml) {
-    throw UnimplementedError('parser implemented in a later task');
-  }
 }
 ```
+
+### 2.3 `.xdc` zip container reader
+
+**Implemented** in `lib/src/webxdc_archive.dart` as `WebxdcArchive`, a
+read-only, in-memory reader (`archive` package's `ZipDecoder`) with:
+
+- **zip-slip / path-traversal protection**: entry names are normalized
+  (leading `./`/`/` stripped) and rejected with a `FormatException` if they
+  contain a `..` segment, a backslash, or a Windows drive-letter prefix,
+  before any bytes are exposed to callers — see [§3](#3-sandboxing--security-requirements).
+- **`index.html` is mandatory**; a missing entry throws `FormatException`.
+  This follows the upstream `.xdc` format page (`index.html` mandatory,
+  `manifest.toml` optional) rather than this document's earlier "manifest is
+  always required" wording — that wording has been corrected here.
+- **`manifest.toml` is optional**: if present it is parsed via
+  `WebxdcManifest.fromToml`; `WebxdcArchive.manifest` is `null` when absent,
+  and a malformed manifest still throws `FormatException`.
+
+`WebxdcArchive` exposes `filePaths`, `hasIndexHtml`, `readBytes(path)`, and
+`readString(path)`; it does not write to disk or extract into a directory —
+materializing assets for a web view/iframe is a per-platform-package concern
+that does not exist yet. See `test/webxdc_archive_test.dart`.
+
+### 2.4 App-facing update log/replay: `WebxdcController`
+
+**Implemented** in `lib/src/webxdc_controller.dart` as `WebxdcController`,
+the platform-agnostic half of the [§4](#4-updatesync-model-plugin-vs-host-boundary)
+plugin/host boundary for a single `.xdc` app instance:
+
+- `sendUpdate(update, {descr})` records a local mini-app update, assigns it
+  the next serial, applies the `descr`→`info` fallback, enforces
+  `sendUpdateMaxSize` (throwing `WebxdcUpdateTooLargeException` if
+  exceeded), and emits it on the `updates` broadcast stream.
+- `deliverUpdate(update)` is the host-facing counterpart: the hosting
+  application calls this when it receives an update from a peer over its
+  own transport, sharing the same serial sequence as `sendUpdate` so replay
+  is origin-agnostic.
+- `updatesSince(serial)` implements `setUpdateListener(callback, serial)`'s
+  replay semantics (defaults to `0`, i.e. the full backlog).
+- `selfAddr`/`selfName`/`sendUpdateInterval`/`sendUpdateMaxSize` are plain
+  constructor parameters a host supplies per app instance; a future JS
+  bridge would read them to populate the corresponding `window.webxdc`
+  properties.
+
+`WebxdcController` has no dependency on Flutter widgets, platform channels,
+or JS interop — a `flutter_webxdc_platform_interface` JS bridge
+implementation is expected to sit on top of it, forwarding
+`sendUpdate`/`setUpdateListener` calls from mini-app JS into this
+controller and vice versa. See `test/webxdc_controller_test.dart`.
 
 ## 3. Sandboxing / security requirements
 

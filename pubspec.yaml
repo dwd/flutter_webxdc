@@ -10,15 +10,15 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # Parses manifest.toml inside .xdc archives (see doc/design.md §2.2).
+  toml: ^0.18.0
+  # Reads .xdc zip archives (see doc/design.md §3, WebxdcArchive).
+  archive: ^4.0.7
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
-  # Used only by test/fixtures_test.dart to sanity-check the hand-written
-  # test/fixtures/*/manifest.toml files against the schema documented in
-  # doc/design.md (§2.2). Not a runtime dependency of the plugin itself.
-  toml: ^0.18.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
