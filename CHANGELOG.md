@@ -1,5 +1,17 @@
 ## 0.0.1 (In Development)
 
+* Add `flutter_webxdc_web/`, the initial real Flutter Web platform package.
+  The root package declares it as its Web `default_package`, so Flutter's
+  plugin registrant installs `WebWebxdcPlatform`. It hosts apps in sandboxed
+  `srcdoc` iframes, injects the messenger-owned `window.webxdc` shim, and
+  authenticates JSON `postMessage` traffic with both iframe source and a
+  per-instance token. It supports update replay, JS→host update/chat events,
+  and browser file import; see `doc/design.md` for its deliberate asset and
+  file-payload limitations.
+* Correct `WebxdcSession`'s asynchronous-delivery comment: an unawaited
+  `deliverUpdateToApp` failure does not reach the controller stream
+  subscription's `onError`; platform implementations must queue/handle
+  delivery failures until the public session error contract is expanded.
 * Wired the root package to `WebxdcPlatform` and added the first concrete
   platform implementation package:
   - `flutter_webxdc_memory/` — in-memory `MemoryWebxdcPlatform` that hosts

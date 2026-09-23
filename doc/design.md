@@ -63,10 +63,10 @@ graph TD
 | `flutter_webxdc_memory`             | **Implemented.** In-memory `WebxdcPlatform` used as the default/test backend (no WebView/browser). Reference structure for native/Web packages. |
 | `flutter_webxdc_android`            | Android implementation, hosts `.xdc` content in a `flutter_inappwebview` `InAppWebView`, injects `window.webxdc` via `addJavaScriptHandler`.      |
 | `flutter_webxdc_linux` / `_macos` / `_windows` | Desktop implementations, same `flutter_inappwebview` approach as Android (its desktop WebView backends expose the same JS-bridge API).|
-| `flutter_webxdc_web`                | Web implementation: hosts `.xdc` assets in a sandboxed `<iframe>`, bridges `window.webxdc` via `postMessage` (`dart:js_interop`/`package:web`), since there is no WebView to embed a JS handler into. |
+| `flutter_webxdc_web`                | **Implemented initial host.** Hosts `.xdc` assets in a sandboxed `srcdoc` `<iframe>`, injects `window.webxdc`, and bridges it via nonce-bound JSON `postMessage`; see the current limitations below. |
 
 **Note on current repository state:** the federated package **split is
-underway**. Three independently-`pub get`-able packages exist in this
+underway**. Four independently-`pub get`-able packages exist in this
 repository (path dependencies stand in for what would be separate pub.dev
 releases / melos-managed versions once published):
 
@@ -75,9 +75,9 @@ releases / melos-managed versions once published):
   reading, see §2.2/§2.3), `WebxdcController` (the update log/replay API,
   see §4/§2.4), and the session glue that wires those to a registered
   `WebxdcPlatform` (`WebxdcSession`, `FlutterWebxdc.ensureInitialized`)
-  live here in `lib/src/`. `pubspec.yaml` still has no
-  `flutter: plugin:` section (native plugin registration lands with the
-  first WebView/iframe platform package).
+  live here in `lib/src/`. Its `flutter: plugin:` metadata now selects
+  `flutter_webxdc_web` as the Web `default_package`, so Flutter's generated
+  Web registrant installs that backend before the memory fallback is needed.
 - `flutter_webxdc_platform_interface` (`flutter_webxdc_platform_interface/`
   at the repo root) — the stable Dart contract per-platform packages must
   implement. It contains `WebxdcUpdate`, `WebxdcImportedFile`, the JS→host
@@ -97,12 +97,20 @@ releases / melos-managed versions once published):
   `MemoryWebxdcPlatform.registerWith()`. `FlutterWebxdc.ensureInitialized()`
   auto-installs it when nothing else is registered, so the full root →
   interface → platform path is exercisable under plain `flutter test`.
-  Future native/Web packages should mirror this package's structure.
+   Future native packages should mirror this package's structure.
+- `flutter_webxdc_web` (`flutter_webxdc_web/` at the repo root) — an
+  **implemented initial browser host**. It creates a sandboxed `srcdoc`
+  iframe per app, translates archive assets into `data:` URLs, injects the
+  `window.webxdc` shim, and verifies both `MessageEvent.source` and a random
+  per-instance token before accepting JSON `postMessage` traffic. It emits
+  `sendUpdateEvents`/`sendToChatEvents`, replays updates after the iframe
+  signals ready, and uses the browser picker for `importFiles`. The host calls
+  `attachToElement()` to place the iframe in its DOM.
 
-The five native/Web platform packages (`flutter_webxdc_android`, `_linux`,
-`_macos`, `_windows`, `_web`) still do **not** exist — no
-`flutter_inappwebview` dependency, JS injection, or web view/iframe hosting
-exists yet. Until one of those registers itself, the memory backend is the
+The four native platform packages (`flutter_webxdc_android`, `_linux`,
+`_macos`, `_windows`) still do **not** exist — no `flutter_inappwebview`
+dependency or native WebView hosting exists yet. Until the Flutter Web
+registrant or another platform registers itself, the memory backend is the
 active `WebxdcPlatform.instance`.
 
 ### WebView technology decision: `flutter_inappwebview`
@@ -410,7 +418,18 @@ Platform-specific test scoping follows `AGENTS.md`.
   does, and CSP-based network blocking can be more brittle (e.g. some
   request types are not covered by all CSP directives in all browsers). This
   is a known, intentional deviation for the Web target and must be
-  called out to host applications wanting strict security guarantees on Web.
+   called out to host applications wanting strict security guarantees on Web.
+- **The initial Web host is deliberately narrow.**
+  `flutter_webxdc_web` rewrites quoted relative HTML `src`/`href` attributes
+  to archive `data:` URLs and supports the stable identity/update/import APIs,
+  but it does not yet virtualize CSS `url(...)`, dynamic imports, or
+  service-worker asset loading. JS `sendToChat` currently forwards text
+  payloads only; iframe file payload serialization remains follow-up work.
+  Its DOM code uses the SDK's `dart:html` compatibility API for
+  `MessageEvent`/file-picker support while the package carries `package:web`
+  for the planned migration. These gaps are known Web-target deviations, not
+  silent permission grants: the iframe CSP still blocks network requests when
+  `request_internet_access` is false.
 - **`flutter_inappwebview` is a third-party dependency.** If its Desktop
   platform coverage regresses in a future release, the fallback plan is to
   swap in per-platform native WebView packages (e.g. platform-specific

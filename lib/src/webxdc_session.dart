@@ -97,10 +97,11 @@ class WebxdcSession {
 
     // Forward every recorded update into the hosted app (setUpdateListener).
     final updatesSubscription = controller.updates.listen((update) {
-      // deliverUpdateToApp is async but fire-and-forget here: the memory
-      // backend completes synchronously, and native backends will queue
-      // into the web view. Errors surface via the subscription's
-      // onError if a caller attaches one.
+      // The controller stream is synchronous while platform delivery is
+      // asynchronous. This is deliberately fire-and-forget so a JS update
+      // cannot block the update log; platform implementations must queue and
+      // handle their own delivery failures. A failed Future does *not* reach
+      // this StreamSubscription's onError handler.
       unawaited(resolvedPlatform.deliverUpdateToApp(instanceId, update));
     });
 

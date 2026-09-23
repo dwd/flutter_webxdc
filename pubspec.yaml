@@ -27,6 +27,11 @@ dependencies:
   # itself (see doc/design.md §2).
   flutter_webxdc_memory:
     path: flutter_webxdc_memory
+  # Browser implementation registered automatically by Flutter's Web plugin
+  # registrant. It hosts the app in a sandboxed iframe and is not imported by
+  # the shared Dart API on native targets.
+  flutter_webxdc_web:
+    path: flutter_webxdc_web
 
 dev_dependencies:
   flutter_test:
@@ -38,6 +43,10 @@ dev_dependencies:
 
 # The following section is specific to Flutter packages.
 flutter:
+  plugin:
+    platforms:
+      web:
+        default_package: flutter_webxdc_web
 
   # To add assets to your package, add an assets section, like this:
   # assets:

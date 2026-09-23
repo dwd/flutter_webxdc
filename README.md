@@ -20,8 +20,8 @@ to enable interactive, embeddable mini apps (`.xdc` archives) in Flutter applica
 
 This repository implements the federated package split described in
 [doc/design.md](doc/design.md#2-target-federated-package-layout) up through a
-runnable in-memory platform backend. It targets the following platforms once
-per-platform WebView/iframe hosting is implemented:
+runnable in-memory backend plus an initial Flutter Web iframe host. It targets
+the following platforms:
 - **Android**
 - **Desktop** (Linux, macOS, Windows)
 - **Web**
@@ -43,12 +43,19 @@ Packages that exist today:
   concrete `WebxdcPlatform` implementation. Hosts `.xdc` assets and the
   update bridge entirely in memory (no WebView/browser), registers via
   `MemoryWebxdcPlatform.registerWith()`, and is the default backend
-  auto-installed by `FlutterWebxdc.ensureInitialized()`.
+    auto-installed by `FlutterWebxdc.ensureInitialized()`.
+- **[`flutter_webxdc_web`](flutter_webxdc_web/README.md)** — initial Web
+  `WebxdcPlatform` implementation, registered automatically through the root
+  package's Flutter Web plugin metadata. It hosts each app in a sandboxed
+  iframe, injects the `window.webxdc` bridge, and uses validated
+  `postMessage` traffic. The embedding Web app calls `attachToElement()` to
+  place an opened session's iframe in its DOM.
 
-Not implemented yet: the five native/Web platform packages
-(`flutter_webxdc_android`, `_linux`, `_macos`, `_windows`, `_web`),
-`flutter_inappwebview`/web-iframe hosting, and real JS injection. For the
-detailed architecture and roadmap, please see [doc/design.md](doc/design.md).
+Not implemented yet: the four native platform packages
+(`flutter_webxdc_android`, `_linux`, `_macos`, `_windows`) and their
+`flutter_inappwebview` hosts. The Web implementation has documented asset
+rewriting and `sendToChat` file-payload limitations; see
+[doc/design.md](doc/design.md) for the detailed architecture and roadmap.
 
 ## Usage
 
@@ -75,9 +82,10 @@ session.deliverPeerUpdate({'payload': {'counter': 2}}); // from a peer
 await session.dispose();
 ```
 
-Native WebView / iframe hosting is not available yet; `WebxdcSession` runs
-against `MemoryWebxdcPlatform` by default so the full plugin path is
-testable today. See [doc/design.md](doc/design.md) for the planned
+Native WebView hosting is not available yet. On Flutter Web the plugin
+registrant installs `WebWebxdcPlatform`; elsewhere `WebxdcSession` falls back
+to `MemoryWebxdcPlatform`, keeping the full shared plugin path testable today.
+See [doc/design.md](doc/design.md) for Web usage and the planned native
 platform packages.
 
 ## Additional information
