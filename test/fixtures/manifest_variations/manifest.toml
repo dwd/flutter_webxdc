@@ -1,0 +1,5 @@
+# Fixture: intentionally omits every optional field (`source_code_url`,
+# `request_internet_access`, `min_api_version`, `max_api_version`) to
+# represent the tolerant-parsing edge case documented in doc/design.md §2.2.
+# Only the required `name` field is present.
+name = "Fixture: Manifest Variations"

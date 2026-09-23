@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<!--
+  Hand-written fixture for flutter_webxdc (see doc/design.md §5 "Testing
+  strategy"). Exercises the basic `sendUpdate` / `setUpdateListener`
+  round-trip described in doc/design.md §2.1. Original content, not vendored
+  from any upstream webxdc app.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Fixture: Basic Update</title>
+  <script src="webxdc.js"></script>
+</head>
+<body>
+  <p id="status">waiting for update…</p>
+  <button id="bump">Send update</button>
+  <script>
+    let counter = 0;
+
+    window.webxdc.setUpdateListener((update) => {
+      counter = update.payload.counter;
+      document.getElementById('status').textContent =
+        'counter = ' + counter;
+    }, 0);
+
+    document.getElementById('bump').addEventListener('click', () => {
+      window.webxdc.sendUpdate(
+        { payload: { counter: counter + 1 }, info: 'counter bumped' },
+        'counter bumped'
+      );
+    });
+  </script>
+</body>
+</html>

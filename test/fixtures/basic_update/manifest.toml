@@ -1,0 +1,5 @@
+name = "Fixture: Basic Update"
+source_code_url = "https://example.invalid/flutter_webxdc/fixtures/basic_update"
+request_internet_access = false
+min_api_version = 1
+max_api_version = 1
