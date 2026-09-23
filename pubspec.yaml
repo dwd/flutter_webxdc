@@ -2,6 +2,10 @@ name: flutter_webxdc
 description: "A new Flutter project."
 version: 0.0.1
 homepage:
+# Not yet published: depends on flutter_webxdc_platform_interface via a
+# local path dependency while the federated package split is developed in
+# this single repo (see doc/design.md §2).
+publish_to: none
 
 environment:
   sdk: ^3.12.2
@@ -14,6 +18,10 @@ dependencies:
   toml: ^0.18.0
   # Reads .xdc zip archives (see doc/design.md §3, WebxdcArchive).
   archive: ^4.0.7
+  # Stable Dart contract for platform implementations (WebxdcUpdate,
+  # WebxdcPlatform) — see doc/design.md §2.
+  flutter_webxdc_platform_interface:
+    path: flutter_webxdc_platform_interface
 
 dev_dependencies:
   flutter_test:

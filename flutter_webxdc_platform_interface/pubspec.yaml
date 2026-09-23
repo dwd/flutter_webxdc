@@ -1,0 +1,29 @@
+name: flutter_webxdc_platform_interface
+description: >-
+  A common platform interface for the flutter_webxdc plugin: the stable
+  Dart contract (WebxdcPlatform, WebxdcUpdate) that per-platform
+  implementation packages (flutter_webxdc_android, flutter_webxdc_web, ...)
+  must conform to. See doc/design.md in the flutter_webxdc repository for
+  the full target architecture.
+version: 0.0.1
+homepage:
+# Not yet published: developed alongside flutter_webxdc in the same repo
+# while the federated package split matures (see doc/design.md §2).
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+  flutter: ">=1.17.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  plugin_platform_interface: ^2.1.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+# For information on the generic Dart part of this file, see the
+# following page: https://dart.dev/tools/pub/pubspec

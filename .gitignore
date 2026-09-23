@@ -23,9 +23,12 @@ migrate_working_dir/
 
 # Flutter/Dart/Pub related
 # Libraries should not include pubspec.lock, per https://dart.dev/guides/libraries/private-files#pubspeclock.
-/pubspec.lock
+# Not anchored to the repo root: this repo hosts multiple federated
+# packages (flutter_webxdc, flutter_webxdc_platform_interface, ...), each
+# with its own pubspec.lock/build/.dart_tool directory.
+pubspec.lock
 **/doc/api/
 .dart_tool/
 .flutter-plugins-dependencies
-/build/
+build/
 /coverage/

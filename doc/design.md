@@ -63,15 +63,37 @@ graph TD
 | `flutter_webxdc_linux` / `_macos` / `_windows` | Desktop implementations, same `flutter_inappwebview` approach as Android (its desktop WebView backends expose the same JS-bridge API).|
 | `flutter_webxdc_web`                | Web implementation: hosts `.xdc` assets in a sandboxed `<iframe>`, bridges `window.webxdc` via `postMessage` (`dart:js_interop`/`package:web`), since there is no WebView to embed a JS handler into. |
 
-**Note on current repository state:** the repository currently implements
-only the platform-free half of this diagram — the `flutter_webxdc` box
-(`WebxdcManifest`, `WebxdcArchive`, `WebxdcUpdate`, `WebxdcController`, see
-§2.1/§2.2/§4 below) lives directly in `lib/src/` of the single existing
-package; `pubspec.yaml` still has no `flutter: plugin:` section. The
-federated-package split (`flutter_webxdc_platform_interface` and the five
-per-platform packages, plus `flutter_inappwebview`/iframe hosting) remains
-the *target* architecture for a follow-up task — no platform code, JS
-injection, or web view/iframe hosting exists yet.
+**Note on current repository state:** the federated package **split has
+started**. Two of the six boxes in the diagram now exist as real,
+independently-`pub get`-able packages in this repository (a path
+dependency stands in for what would be separate pub.dev releases /
+melos-managed versions once published):
+
+- `flutter_webxdc` (repository root) — the app-facing package.
+  `WebxdcManifest` and `WebxdcArchive` (manifest parsing, `.xdc` zip
+  reading, see §2.2/§2.3) and `WebxdcController` (the update log/replay API,
+  see §4/§2.4) live here, in `lib/src/`. `pubspec.yaml` still has no
+  `flutter: plugin:` section, since there is no platform code to register
+  yet.
+- `flutter_webxdc_platform_interface` (`flutter_webxdc_platform_interface/`
+  at the repo root) — the stable Dart contract per-platform packages must
+  implement. It contains `WebxdcUpdate` (moved out of `flutter_webxdc`,
+  since it is also the payload shape crossing the future method-channel/JS
+  boundary) and the new abstract `WebxdcPlatform` class (built on
+  `package:plugin_platform_interface`, following the same
+  `PlatformInterface` + static `instance` pattern used by other federated
+  Flutter plugins). `flutter_webxdc` re-exports both from
+  `lib/flutter_webxdc.dart`, so most consumers only need to depend on the
+  root package. See §2.1a below for what `WebxdcPlatform` currently
+  declares.
+
+The five per-platform packages (`flutter_webxdc_android`, `_linux`,
+`_macos`, `_windows`, `_web`) still do **not** exist — no platform code,
+JS injection, `flutter_inappwebview` dependency, or web view/iframe hosting
+exists yet. `WebxdcPlatform.instance` therefore throws a `StateError` until
+a platform package registers an implementation; this does not affect the
+platform-agnostic features (`WebxdcManifest`, `WebxdcArchive`,
+`WebxdcController`), which have no dependency on it.
 
 ### WebView technology decision: `flutter_inappwebview`
 
@@ -115,6 +137,39 @@ the **host messenger**, never bundled inside the `.xdc` file — each platform
 package (`flutter_webxdc_android`, `_web`, …) is responsible for injecting an
 equivalent shim that forwards these calls to the `WebxdcPlatform` contract in
 `flutter_webxdc_platform_interface`.
+
+### 2.1a `WebxdcPlatform`: the platform-implementation contract
+
+**Implemented** (scaffolding only) in
+`flutter_webxdc_platform_interface/lib/src/webxdc_platform.dart` as
+`WebxdcPlatform`, an abstract class extending `PlatformInterface` (from
+`package:plugin_platform_interface`) that fixes the Dart-side shape every
+per-platform package must conform to, mirroring the table above one level
+down (host-facing rather than JS-facing):
+
+- `loadApp({instanceId, files, selfAddr, selfName, requestInternetAccess})`
+  — host the already-extracted `.xdc` file tree for `sendUpdate`'s `#3`
+  sandboxing requirements and inject the `window.webxdc` shim.
+- `deliverUpdateToApp(instanceId, WebxdcUpdate update)` — forward a
+  recorded update (local or peer-originated, see `WebxdcController` in
+  §2.4) into the hosted app's `setUpdateListener`.
+- `sendToChat({instanceId, text, fileBytes, fileName, contentType})` and
+  `importFiles({instanceId, extensions, mimeTypes, multiple})` — the
+  `sendToChat`/`importFiles` JS calls (`importFiles` returns
+  `List<WebxdcImportedFile>`, a bytes-only file model with no filesystem
+  path, per §3's "no direct filesystem access" requirement).
+- `supportsRealtimeChannel` — defaults to `false`; feature-detection point
+  for the experimental `joinRealtimeChannel` API (§6).
+- `disposeApp(instanceId)` — releases per-instance resources.
+
+Every method's default body throws `UnimplementedError`, and
+`WebxdcPlatform.instance` throws a `StateError` until some platform package
+calls `WebxdcPlatform.instance = ...` (matching the `PlatformInterface`
+pattern used by e.g. `shared_preferences_platform_interface`). **No
+platform package implements this yet** — the method signatures above are a
+first-draft contract based on the JS API table and may still change once an
+actual `flutter_inappwebview`/iframe implementation is attempted; treat
+them as scaffolding, not a frozen ABI.
 
 ### 2.2 `manifest.toml` schema and `WebxdcManifest` data model
 
@@ -228,10 +283,12 @@ plugin/host boundary for a single `.xdc` app instance:
   properties.
 
 `WebxdcController` has no dependency on Flutter widgets, platform channels,
-or JS interop — a `flutter_webxdc_platform_interface` JS bridge
+or JS interop, beyond the `WebxdcUpdate` model it shares with
+`flutter_webxdc_platform_interface` (§2.1a) — a `WebxdcPlatform`
 implementation is expected to sit on top of it, forwarding
 `sendUpdate`/`setUpdateListener` calls from mini-app JS into this
-controller and vice versa. See `test/webxdc_controller_test.dart`.
+controller (via `deliverUpdateToApp`) and vice versa. See
+`test/webxdc_controller_test.dart`.
 
 ## 3. Sandboxing / security requirements
 

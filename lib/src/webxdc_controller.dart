@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'webxdc_update.dart';
+import 'package:flutter_webxdc_platform_interface/flutter_webxdc_platform_interface.dart';
 
 /// Default value for `window.webxdc.sendUpdateInterval` when the host does
 /// not override it, per doc/design.md §2.1.

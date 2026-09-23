@@ -3,6 +3,11 @@
 /// `setUpdateListener`.
 ///
 /// See `doc/design.md` §2.1 for the full JS API contract this mirrors.
+///
+/// This type lives in `flutter_webxdc_platform_interface` (rather than the
+/// app-facing `flutter_webxdc` package) because it is also the payload
+/// shape [WebxdcPlatform] implementations exchange across the
+/// method-channel/JS-message boundary with a per-platform package.
 class WebxdcUpdate {
   const WebxdcUpdate({
     required this.payload,

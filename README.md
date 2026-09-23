@@ -18,26 +18,35 @@ to enable interactive, embeddable mini apps (`.xdc` archives) in Flutter applica
 
 ## Status
 
-This plugin currently provides the platform-agnostic shared core only; no
-web view/iframe hosting exists yet. It targets the following platforms once
+This repository has started the federated package split described in
+[doc/design.md](doc/design.md#2-target-federated-package-layout); no web
+view/iframe hosting exists yet. It targets the following platforms once
 per-platform hosting is implemented:
 - **Android**
 - **Desktop** (Linux, macOS, Windows)
 - **Web**
 
-Implemented today, in `lib/flutter_webxdc.dart`:
-- `WebxdcManifest` — `manifest.toml` parsing (`fromToml`/`fromMap`).
-- `WebxdcArchive` — read-only `.xdc` zip container reader with zip-slip
-  protection.
-- `WebxdcUpdate` — the `sendUpdate`/`setUpdateListener` JS-bridge payload
-  model.
-- `WebxdcController` — the app-facing update log/replay API a future JS
-  bridge would sit on top of.
+Two packages exist today:
+- **`flutter_webxdc`** (this package) — the app-facing API, re-exporting
+  the platform-interface package below so most consumers only need this
+  dependency:
+  - `WebxdcManifest` — `manifest.toml` parsing (`fromToml`/`fromMap`).
+  - `WebxdcArchive` — read-only `.xdc` zip container reader with zip-slip
+    protection.
+  - `WebxdcController` — the app-facing update log/replay API a
+    `WebxdcPlatform` implementation would sit on top of.
+- **[`flutter_webxdc_platform_interface`](flutter_webxdc_platform_interface/README.md)**
+  — the stable Dart contract per-platform packages must implement:
+  - `WebxdcUpdate` — the `sendUpdate`/`setUpdateListener` JS-bridge payload
+    model.
+  - `WebxdcPlatform` — the abstract platform contract (hosting, updates,
+    `sendToChat`, `importFiles`, realtime-channel capability detection).
+    No platform package implements it yet.
 
-Not implemented yet: the federated `flutter_webxdc_platform_interface` and
-per-platform packages, `flutter_inappwebview`/web-iframe hosting, and JS
-injection. For the detailed architecture and roadmap, please see
-[doc/design.md](doc/design.md).
+Not implemented yet: the five per-platform packages
+(`flutter_webxdc_android`, `_linux`, `_macos`, `_windows`, `_web`),
+`flutter_inappwebview`/web-iframe hosting, and JS injection. For the
+detailed architecture and roadmap, please see [doc/design.md](doc/design.md).
 
 ## Usage
 
@@ -61,4 +70,7 @@ Full web view/iframe hosting is not available yet; see
 
 Please refer to [doc/design.md](doc/design.md) for the target architecture,
 the JS API contract, and testing strategy. Contributions are welcome for the
-remaining federated platform packages.
+remaining federated platform packages (`flutter_webxdc_android`, `_linux`,
+`_macos`, `_windows`, `_web`), which would depend on
+[`flutter_webxdc_platform_interface`](flutter_webxdc_platform_interface/README.md)
+and implement its `WebxdcPlatform` contract.
