@@ -1,0 +1,31 @@
+name: flutter_webxdc_memory
+description: >-
+  In-memory platform implementation of flutter_webxdc's WebxdcPlatform
+  contract. Used as the default backend for plain `flutter test` and as a
+  reference for future native/Web platform packages (flutter_webxdc_android,
+  flutter_webxdc_web, ...). Hosts `.xdc` assets and the update bridge without
+  a real WebView or browser. See doc/design.md in the flutter_webxdc
+  repository.
+version: 0.0.1
+homepage:
+# Not yet published: developed alongside flutter_webxdc in the same repo
+# while the federated package split matures (see doc/design.md §2).
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+  flutter: ">=1.17.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_webxdc_platform_interface:
+    path: ../flutter_webxdc_platform_interface
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+# For information on the generic Dart part of this file, see the
+# following page: https://dart.dev/tools/pub/pubspec

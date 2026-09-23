@@ -61,5 +61,12 @@ void main() {
       );
       expect(platform.supportsRealtimeChannel, isFalse);
     });
+
+    test('event streams default to empty', () async {
+      final platform = _FakeWebxdcPlatform();
+
+      expect(await platform.sendUpdateEvents.isEmpty, isTrue);
+      expect(await platform.sendToChatEvents.isEmpty, isTrue);
+    });
   });
 }

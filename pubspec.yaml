@@ -22,6 +22,11 @@ dependencies:
   # WebxdcPlatform) — see doc/design.md §2.
   flutter_webxdc_platform_interface:
     path: flutter_webxdc_platform_interface
+  # Default in-memory WebxdcPlatform implementation used under plain
+  # `flutter test` and until a native/Web platform package registers
+  # itself (see doc/design.md §2).
+  flutter_webxdc_memory:
+    path: flutter_webxdc_memory
 
 dev_dependencies:
   flutter_test:

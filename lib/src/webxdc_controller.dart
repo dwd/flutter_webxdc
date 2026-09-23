@@ -28,14 +28,16 @@ class WebxdcUpdateTooLargeException implements Exception {
 /// in doc/design.md §4 ("Update/sync model: plugin vs. host boundary").
 ///
 /// This is the platform-agnostic half of the plugin/host boundary: it is
-/// what a `flutter_webxdc_platform_interface` JS-bridge implementation would
-/// call into when mini-app JS invokes `sendUpdate`/`setUpdateListener`, and
-/// what the *hosting application* calls into when a peer update arrives over
-/// its own transport (email, chat protocol, etc.) via [deliverUpdate].
+/// what a [WebxdcPlatform] JS-bridge implementation (and the app-facing
+/// [WebxdcSession] that wires one up) calls into when mini-app JS invokes
+/// `sendUpdate`/`setUpdateListener`, and what the *hosting application*
+/// calls into when a peer update arrives over its own transport (email,
+/// chat protocol, etc.) via [deliverUpdate].
 ///
 /// [WebxdcController] deliberately knows nothing about web views, JS
 /// interop, or method channels — those live in the per-platform packages
-/// that are still only a design ([doc/design.md] §2).
+/// (`flutter_webxdc_memory` today; `flutter_webxdc_android` / `_web` / ...
+/// later). Prefer [WebxdcSession] for the fully wired path.
 class WebxdcController {
   WebxdcController({
     required this.selfAddr,

@@ -25,6 +25,12 @@ class WebxdcArchive {
   /// All file paths contained in the archive, relative to its root.
   Iterable<String> get filePaths => _files.keys;
 
+  /// Read-only view of every file in the archive (`path` → bytes).
+  ///
+  /// Suitable for passing straight to [WebxdcPlatform.loadApp].
+  Map<String, Uint8List> get files =>
+      Map<String, Uint8List>.unmodifiable(_files);
+
   /// Whether the mandatory `index.html` entry point is present.
   bool get hasIndexHtml => _files.containsKey('index.html');
 

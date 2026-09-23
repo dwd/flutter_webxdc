@@ -3,24 +3,31 @@
 ///
 /// See `doc/design.md` for the full target architecture. This library
 /// exposes the app-facing half of the federated package layout described
-/// there (§2): `manifest.toml` parsing ([WebxdcManifest]), the `.xdc` zip
-/// container reader ([WebxdcArchive]), and the app-facing update log/replay
-/// controller ([WebxdcController]).
+/// there (§2):
+///
+/// - `manifest.toml` parsing ([WebxdcManifest])
+/// - `.xdc` zip container reader ([WebxdcArchive])
+/// - per-instance update log/replay ([WebxdcController])
+/// - the session glue that wires those to a [WebxdcPlatform]
+///   implementation ([WebxdcSession], [FlutterWebxdc])
 ///
 /// It also re-exports the stable platform contract from
-/// `flutter_webxdc_platform_interface` ([WebxdcUpdate], [WebxdcPlatform],
-/// [WebxdcImportedFile]) so most consumers only need to depend on this
-/// package.
+/// `flutter_webxdc_platform_interface` and the default in-memory platform
+/// (`MemoryWebxdcPlatform` from `flutter_webxdc_memory`) so most consumers
+/// only need to depend on this package.
 ///
-/// Platform hosting (Android/Desktop `flutter_inappwebview` web views, the
-/// Web `<iframe>`/`postMessage` bridge) is not yet implemented; per
-/// `doc/design.md` §2 those live in dedicated per-platform packages
-/// (`flutter_webxdc_android`, `flutter_webxdc_web`, ...) that implement
-/// [WebxdcPlatform] — none exist yet.
+/// Native WebView / Web iframe hosting is not yet implemented; those live
+/// in future per-platform packages (`flutter_webxdc_android`,
+/// `flutter_webxdc_web`, ...) that will replace [MemoryWebxdcPlatform] via
+/// the same [WebxdcPlatform.instance] registration path.
 library;
 
+export 'package:flutter_webxdc_memory/flutter_webxdc_memory.dart'
+    show MemoryWebxdcPlatform;
 export 'package:flutter_webxdc_platform_interface/flutter_webxdc_platform_interface.dart';
 
+export 'src/flutter_webxdc.dart';
 export 'src/webxdc_archive.dart';
 export 'src/webxdc_controller.dart';
 export 'src/webxdc_manifest.dart';
+export 'src/webxdc_session.dart';

@@ -1,6 +1,11 @@
-## 0.0.1 (In Development)
+## 0.0.1
 
-* Initial scaffolding: `WebxdcUpdate` (moved from `flutter_webxdc`) and the
-  new abstract `WebxdcPlatform` contract (built on
-  `package:plugin_platform_interface`), per the federated package layout in
-  `doc/design.md` §2. No platform package implements `WebxdcPlatform` yet.
+* Added JS→host event types (`WebxdcJsSendUpdateEvent`,
+  `WebxdcJsSendToChatEvent`) and default empty
+  `sendUpdateEvents` / `sendToChatEvents` streams on `WebxdcPlatform`, so
+  platform implementations have a uniform way to surface mini-app JS calls
+  to the host / `WebxdcSession`.
+* Initial scaffolding: `WebxdcUpdate` (moved from `flutter_webxdc`),
+  `WebxdcImportedFile`, and the abstract `WebxdcPlatform` contract (built on
+  `package:plugin_platform_interface`, `PlatformInterface` + static
+  `instance` pattern). Every method defaults to `UnimplementedError`.

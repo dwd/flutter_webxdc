@@ -43,6 +43,7 @@ workspace) is:
 ```mermaid
 graph TD
   App[flutter_webxdc<br/>app-facing Dart API] --> Interface[flutter_webxdc_platform_interface<br/>WebxdcPlatform contract]
+  Interface --> Memory[flutter_webxdc_memory<br/>in-memory host / default]
   Interface --> Android[flutter_webxdc_android<br/>flutter_inappwebview host]
   Interface --> Windows[flutter_webxdc_windows<br/>flutter_inappwebview host]
   Interface --> Linux[flutter_webxdc_linux<br/>flutter_inappwebview host]
@@ -57,43 +58,52 @@ graph TD
 
 | Package                            | Responsibility                                                                                                                                   |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------|
-| `flutter_webxdc`                    | App-facing Dart API: widgets/controllers a host app uses to open/host a `.xdc`, `WebxdcManifest` parsing, `.xdc` zip reading. Platform-agnostic. |
-| `flutter_webxdc_platform_interface` | Abstract `WebxdcPlatform` contract (method-channel/JS message shapes), `WebxdcUpdate` model, shared test doubles. No platform code.               |
+| `flutter_webxdc`                    | App-facing Dart API: `WebxdcSession`/`FlutterWebxdc`, `WebxdcManifest` parsing, `.xdc` zip reading, `WebxdcController`. Platform-agnostic. |
+| `flutter_webxdc_platform_interface` | Abstract `WebxdcPlatform` contract (method-channel/JS message shapes), `WebxdcUpdate` model, JS-bridge event types. No platform code.               |
+| `flutter_webxdc_memory`             | **Implemented.** In-memory `WebxdcPlatform` used as the default/test backend (no WebView/browser). Reference structure for native/Web packages. |
 | `flutter_webxdc_android`            | Android implementation, hosts `.xdc` content in a `flutter_inappwebview` `InAppWebView`, injects `window.webxdc` via `addJavaScriptHandler`.      |
 | `flutter_webxdc_linux` / `_macos` / `_windows` | Desktop implementations, same `flutter_inappwebview` approach as Android (its desktop WebView backends expose the same JS-bridge API).|
 | `flutter_webxdc_web`                | Web implementation: hosts `.xdc` assets in a sandboxed `<iframe>`, bridges `window.webxdc` via `postMessage` (`dart:js_interop`/`package:web`), since there is no WebView to embed a JS handler into. |
 
-**Note on current repository state:** the federated package **split has
-started**. Two of the six boxes in the diagram now exist as real,
-independently-`pub get`-able packages in this repository (a path
-dependency stands in for what would be separate pub.dev releases /
-melos-managed versions once published):
+**Note on current repository state:** the federated package **split is
+underway**. Three independently-`pub get`-able packages exist in this
+repository (path dependencies stand in for what would be separate pub.dev
+releases / melos-managed versions once published):
 
 - `flutter_webxdc` (repository root) — the app-facing package.
   `WebxdcManifest` and `WebxdcArchive` (manifest parsing, `.xdc` zip
-  reading, see §2.2/§2.3) and `WebxdcController` (the update log/replay API,
-  see §4/§2.4) live here, in `lib/src/`. `pubspec.yaml` still has no
-  `flutter: plugin:` section, since there is no platform code to register
-  yet.
+  reading, see §2.2/§2.3), `WebxdcController` (the update log/replay API,
+  see §4/§2.4), and the session glue that wires those to a registered
+  `WebxdcPlatform` (`WebxdcSession`, `FlutterWebxdc.ensureInitialized`)
+  live here in `lib/src/`. `pubspec.yaml` still has no
+  `flutter: plugin:` section (native plugin registration lands with the
+  first WebView/iframe platform package).
 - `flutter_webxdc_platform_interface` (`flutter_webxdc_platform_interface/`
   at the repo root) — the stable Dart contract per-platform packages must
-  implement. It contains `WebxdcUpdate` (moved out of `flutter_webxdc`,
-  since it is also the payload shape crossing the future method-channel/JS
-  boundary) and the new abstract `WebxdcPlatform` class (built on
+  implement. It contains `WebxdcUpdate`, `WebxdcImportedFile`, the JS→host
+  event types (`WebxdcJsSendUpdateEvent`, `WebxdcJsSendToChatEvent`), and
+  the abstract `WebxdcPlatform` class (built on
   `package:plugin_platform_interface`, following the same
   `PlatformInterface` + static `instance` pattern used by other federated
-  Flutter plugins). `flutter_webxdc` re-exports both from
+  Flutter plugins). `flutter_webxdc` re-exports these from
   `lib/flutter_webxdc.dart`, so most consumers only need to depend on the
   root package. See §2.1a below for what `WebxdcPlatform` currently
   declares.
+- `flutter_webxdc_memory` (`flutter_webxdc_memory/` at the repo root) — the
+  **first concrete `WebxdcPlatform` implementation**. Hosts `.xdc` file
+  trees and the update/`sendToChat`/`importFiles` bridge entirely in
+  process memory (no WebView, iframe, or browser), emits on
+  `sendUpdateEvents` / `sendToChatEvents`, and registers via
+  `MemoryWebxdcPlatform.registerWith()`. `FlutterWebxdc.ensureInitialized()`
+  auto-installs it when nothing else is registered, so the full root →
+  interface → platform path is exercisable under plain `flutter test`.
+  Future native/Web packages should mirror this package's structure.
 
-The five per-platform packages (`flutter_webxdc_android`, `_linux`,
-`_macos`, `_windows`, `_web`) still do **not** exist — no platform code,
-JS injection, `flutter_inappwebview` dependency, or web view/iframe hosting
-exists yet. `WebxdcPlatform.instance` therefore throws a `StateError` until
-a platform package registers an implementation; this does not affect the
-platform-agnostic features (`WebxdcManifest`, `WebxdcArchive`,
-`WebxdcController`), which have no dependency on it.
+The five native/Web platform packages (`flutter_webxdc_android`, `_linux`,
+`_macos`, `_windows`, `_web`) still do **not** exist — no
+`flutter_inappwebview` dependency, JS injection, or web view/iframe hosting
+exists yet. Until one of those registers itself, the memory backend is the
+active `WebxdcPlatform.instance`.
 
 ### WebView technology decision: `flutter_inappwebview`
 
@@ -165,11 +175,28 @@ down (host-facing rather than JS-facing):
 Every method's default body throws `UnimplementedError`, and
 `WebxdcPlatform.instance` throws a `StateError` until some platform package
 calls `WebxdcPlatform.instance = ...` (matching the `PlatformInterface`
-pattern used by e.g. `shared_preferences_platform_interface`). **No
-platform package implements this yet** — the method signatures above are a
+pattern used by e.g. `shared_preferences_platform_interface`). The first
+concrete implementation is `MemoryWebxdcPlatform` in
+`flutter_webxdc_memory` (see the repository-state note above); it also
+overrides the JS→host event streams. The method signatures above remain a
 first-draft contract based on the JS API table and may still change once an
 actual `flutter_inappwebview`/iframe implementation is attempted; treat
 them as scaffolding, not a frozen ABI.
+
+In addition to the methods above, `WebxdcPlatform` exposes two broadcast
+streams that platform implementations emit when mini-app JS calls into the
+bridge (so the host / `WebxdcSession` can react without polling):
+
+- `Stream<WebxdcJsSendUpdateEvent> sendUpdateEvents` — JS called
+  `sendUpdate(update, descr)`. Defaults to an empty stream.
+- `Stream<WebxdcJsSendToChatEvent> sendToChatEvents` — JS called
+  `sendToChat(payload)`. Defaults to an empty stream.
+
+`WebxdcSession` (root package) is the app-facing glue that binds a
+`WebxdcController` + `WebxdcArchive` to whatever `WebxdcPlatform` is
+registered: it calls `loadApp` on open, forwards every controller update
+into `deliverUpdateToApp`, records JS-originated `sendUpdateEvents` back
+into the controller, and calls `disposeApp` on dispose.
 
 ### 2.2 `manifest.toml` schema and `WebxdcManifest` data model
 
