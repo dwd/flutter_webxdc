@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'webxdc_imported_file.dart';
@@ -117,6 +118,15 @@ abstract class WebxdcPlatform extends PlatformInterface {
     bool multiple = false,
   }) {
     throw UnimplementedError('importFiles() has not been implemented.');
+  }
+
+  /// Builds the Flutter widget that renders the hosted app for [instanceId].
+  ///
+  /// Native WebView hosts return their WebView widget, browser hosts return an
+  /// [HtmlElementView]-backed widget, and the in-memory fallback returns a
+  /// placeholder that makes the missing real renderer explicit.
+  Widget buildHostWidget(String instanceId, {Key? key}) {
+    throw UnimplementedError('buildHostWidget() has not been implemented.');
   }
 
   /// Whether this platform implementation supports the experimental

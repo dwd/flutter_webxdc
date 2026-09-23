@@ -97,8 +97,10 @@ releases / melos-managed versions once published):
   `window.webxdc` shim, and verifies both `MessageEvent.source` and a random
   per-instance token before accepting JSON `postMessage` traffic. It emits
   `sendUpdateEvents`/`sendToChatEvents`, replays updates after the iframe
-  signals ready, and uses the browser picker for `importFiles`. The host calls
-  `attachToElement()` to place the iframe in its DOM.
+  signals ready, uses the browser picker for `importFiles`, and implements the
+  shared `buildHostWidget(instanceId)` contract via `HtmlElementView` so hosts
+  can render a session without a backend-specific cast. `attachToElement()` and
+  `iframeFor()` remain lower-level browser-only escape hatches.
 - `flutter_webxdc_webview` (`flutter_webxdc_webview/` at the repo root) — an
   **implemented native `flutter_inappwebview` host**, registered as the
   root package's `default_package` for `android`, `ios`, `macos`, and
@@ -110,11 +112,12 @@ releases / melos-managed versions once published):
   `connect-src`/`img-src`/`media-src`/`frame-src` by default and widens
   them to allow `https:`/`wss:` origins when `request_internet_access` is
   `true` (see [§3](#3-sandboxing--security-requirements)). It injects
-  `window.webxdc` via an `AT_DOCUMENT_START` `UserScript` and bridges
-  `sendUpdate`/`setUpdateListener`/`sendToChat` through
-  `addJavaScriptHandler`/`callHandler`. Consumers obtain the `InAppWebView`
-  widget via `WebviewWebxdcPlatform.buildWebView(instanceId)` (not yet part
-  of the shared `WebxdcPlatform` interface — see limitations below).
+  `window.webxdc` via an `AT_DOCUMENT_START` `UserScript`, bridges
+  `sendUpdate`/`setUpdateListener`/`sendToChat`/`importFiles` through
+  `addJavaScriptHandler`/`callHandler`, queues updates until the
+  `InAppWebViewController` exists, and implements the shared
+  `buildHostWidget(instanceId)` contract while keeping
+  `buildWebView(instanceId)` as a package-specific escape hatch.
 
 **Linux** is intentionally not covered by `flutter_webxdc_webview`:
 `flutter_inappwebview` 6.x does not support Linux, so there is currently no
@@ -122,12 +125,14 @@ native WebView backend for that platform; a Linux-specific package (or an
 alternative WebView binding) remains a follow-up.
 
 **Known limitations of `flutter_webxdc_webview`** (tracked as follow-up
-work, not yet implemented): `sendToChat` and `importFiles` are stubs
-(`sendToChat` is a no-op, `importFiles` always returns `[]`); `buildWebView`
-is package-specific API rather than part of `WebxdcPlatform`, so callers
-must cast `WebxdcPlatform.instance` to `WebviewWebxdcPlatform` to render the
-view; and `deliverUpdateToApp` silently drops updates that arrive before
-`onWebViewCreated` has run (i.e. before the `InAppWebViewController` exists).
+work, not yet fully implemented): the native runtime path is still validated
+in this repository only by VM-level tests rather than device/emulator runs;
+`buildWebView` remains a package-specific escape hatch even though ordinary
+hosts can now render through the shared `buildHostWidget(instanceId)` API; and
+embedding apps may still need platform-specific file-picker entitlements (for
+example macOS user-selected file access). Updates that arrive before
+`onWebViewCreated` has run (i.e. before the `InAppWebViewController` exists)
+are now queued instead of being dropped.
 
 ### WebView technology decision: `flutter_inappwebview`
 
@@ -195,6 +200,9 @@ down (host-facing rather than JS-facing):
   `sendToChat`/`importFiles` JS calls (`importFiles` returns
   `List<WebxdcImportedFile>`, a bytes-only file model with no filesystem
   path, per §3's "no direct filesystem access" requirement).
+- `buildHostWidget(instanceId)` — return the Flutter widget that renders the
+  hosted app for that instance (`HtmlElementView` on Web,
+  `InAppWebView`-backed widget on native, placeholder for the memory backend).
 - `supportsRealtimeChannel` — defaults to `false`; feature-detection point
   for the experimental `joinRealtimeChannel` API (§6).
 - `disposeApp(instanceId)` — releases per-instance resources.
@@ -467,16 +475,15 @@ Platform-specific test scoping follows `AGENTS.md`.
   question rather than solved now, since the federated
   `platform_interface` package isolates the rest of the plugin from this
   choice.
-- **`flutter_webxdc_webview` is not yet end-to-end functional.**
-  `sendToChat` is a no-op and `importFiles` always returns `[]` (the
-  native file-picker bridge is not implemented); rendering the hosted app
-  requires calling `WebviewWebxdcPlatform.buildWebView(instanceId)`
-  directly, since it is not yet part of the shared `WebxdcPlatform`
-  interface; and updates delivered before the underlying
-  `InAppWebViewController` is created (i.e. before the widget has been
-  built/mounted) are silently dropped rather than queued. These are
-  tracked as follow-up work, not silent behavior changes to the documented
-  contract.
+- **`flutter_webxdc_webview` is still an initial native host rather than a
+  fully production-hardened one.** It now implements the shared
+  `buildHostWidget(instanceId)` contract, emits/forwards `sendToChat`, uses a
+  real `file_selector`-backed `importFiles`, and queues updates until the
+  underlying `InAppWebViewController` exists. Remaining gaps are runtime/device
+  verification of the real native WebView path in this repository, dynamic deep
+  linking, and embedding-app-specific picker entitlements/configuration (for
+  example macOS user-selected file access). These are tracked as follow-up
+  work, not silent behavior changes to the documented contract.
 - **`.xdc` size/complexity limits** (max archive size, resource limits for
   long-running mini apps) are not yet specified in this document; upstream
   Delta Chat currently caps `.xdc` files at 640 kB, but this is an

@@ -1,5 +1,22 @@
 ## 0.0.1 (In Development)
 
+* Expose a backend-agnostic render surface through the shared/root API:
+  `WebxdcPlatform` now defines `buildHostWidget(instanceId)`, `WebxdcSession`
+  exposes `buildHostWidget()` plus `sendToChatRequests`, and the root package
+  adds `WebxdcHostView` as a thin declarative wrapper. `flutter_webxdc_web`
+  now implements this contract with `HtmlElementView`, `flutter_webxdc_webview`
+  implements it with a deferred `InAppWebView` host widget, and the memory
+  backend provides a placeholder render surface for test/Linux fallback.
+* Replace the obvious native `flutter_webxdc_webview` stubs with real behavior:
+  `sendToChat` now validates and emits shared `WebxdcJsSendToChatEvent`s,
+  `importFiles` now uses `file_selector` 1.0.3, JS `sendToChat` parsing now
+  supports file payload metadata/bytes, and updates delivered before the
+  `InAppWebViewController` exists are queued instead of being dropped.
+* Add regression coverage for the new shared render contract and native/web
+  behavior: root `WebxdcSession` tests cover `sendToChatRequests` and host
+  widget/session surfaces; `flutter_webxdc_webview` tests cover queued native
+  updates plus real `sendToChat`/`importFiles`; `flutter_webxdc_web` adds a
+  browser-scoped `buildHostWidget` test.
 * Fix `flutter_webxdc_webview`'s `WebxdcServer` Content-Security-Policy so
   `request_internet_access = true` actually widens `connect-src`/`img-src`/
   `media-src`/`frame-src` to allow `https:`/`wss:` origins, instead of

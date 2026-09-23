@@ -55,6 +55,7 @@ void main() {
         () => platform.importFiles(instanceId: 'a'),
         throwsUnimplementedError,
       );
+      expect(() => platform.buildHostWidget('a'), throwsUnimplementedError);
       await expectLater(
         () => platform.disposeApp('a'),
         throwsUnimplementedError,

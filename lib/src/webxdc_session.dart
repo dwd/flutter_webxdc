@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_webxdc_platform_interface/flutter_webxdc_platform_interface.dart';
 
 import 'flutter_webxdc.dart';
@@ -57,6 +58,14 @@ class WebxdcSession {
   /// via [deliverPeerUpdate]. Host apps listen here to transport updates to
   /// other chat peers (doc/design.md §4).
   Stream<WebxdcUpdate> get updates => controller.updates;
+
+  /// `sendToChat(payload)` requests originating from the hosted mini app's JS,
+  /// filtered to this session's [instanceId].
+  ///
+  /// Host applications can listen here to open their own compose/share UI.
+  Stream<WebxdcJsSendToChatEvent> get sendToChatRequests => _platform
+      .sendToChatEvents
+      .where((event) => event.instanceId == instanceId);
 
   /// Opens a new session from raw `.xdc` zip [xdcBytes].
   ///
@@ -170,6 +179,16 @@ class WebxdcSession {
       mimeTypes: mimeTypes,
       multiple: multiple,
     );
+  }
+
+  /// Builds the Flutter widget that renders this hosted app instance.
+  ///
+  /// This delegates to the active [WebxdcPlatform], so callers do not need to
+  /// cast to backend-specific platform classes such as
+  /// `WebviewWebxdcPlatform`/`WebWebxdcPlatform`.
+  Widget buildHostWidget({Key? key}) {
+    _ensureOpen();
+    return _platform.buildHostWidget(instanceId, key: key);
   }
 
   /// Tears down subscriptions, the [controller], and the platform host for

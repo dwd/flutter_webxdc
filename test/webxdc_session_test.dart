@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_webxdc/flutter_webxdc.dart';
 
@@ -181,6 +182,36 @@ void main() {
   });
 
   group('WebxdcSession sendToChat / importFiles', () {
+    test('exposes JS sendToChat requests through the session', () async {
+      final bytes = _buildXdcZip(indexHtml: '<html></html>');
+      final session = await WebxdcSession.open(
+        xdcBytes: bytes,
+        instanceId: 'send-to-chat',
+        selfAddr: 'me',
+        selfName: 'Me',
+      );
+
+      final requests = <WebxdcJsSendToChatEvent>[];
+      final sub = session.sendToChatRequests.listen(requests.add);
+
+      platform.simulateJsSendToChat(
+        'send-to-chat',
+        text: 'forward me',
+        fileBytes: Uint8List.fromList(utf8.encode('hi')),
+        fileName: 'hello.txt',
+        contentType: 'text/plain',
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(requests, hasLength(1));
+      expect(requests.single.text, 'forward me');
+      expect(requests.single.fileName, 'hello.txt');
+      expect(requests.single.contentType, 'text/plain');
+
+      await sub.cancel();
+      await session.dispose();
+    });
+
     test('forwards sendToChat to the platform', () async {
       final bytes = _buildXdcZip(indexHtml: '<html></html>');
       final session = await WebxdcSession.open(
@@ -215,6 +246,42 @@ void main() {
       final files = await session.importFiles();
       expect(files, hasLength(1));
       expect(files.single.name, 'note.txt');
+
+      await session.dispose();
+    });
+  });
+
+  group('WebxdcSession render surface', () {
+    test('buildHostWidget returns the registered platform widget', () async {
+      final bytes = _buildXdcZip(indexHtml: '<html></html>');
+      final session = await WebxdcSession.open(
+        xdcBytes: bytes,
+        instanceId: 'host-widget',
+        selfAddr: 'me',
+        selfName: 'Me',
+      );
+
+      final widget = session.buildHostWidget();
+
+      expect(widget, isNotNull);
+
+      await session.dispose();
+    });
+
+    test('WebxdcHostView stores the session and host key', () async {
+      final bytes = _buildXdcZip(indexHtml: '<html></html>');
+      final session = await WebxdcSession.open(
+        xdcBytes: bytes,
+        instanceId: 'host-view',
+        selfAddr: 'me',
+        selfName: 'Me',
+      );
+
+      const hostKey = Key('host-key');
+      final view = WebxdcHostView(session: session, hostWidgetKey: hostKey);
+
+      expect(view.session, same(session));
+      expect(view.hostWidgetKey, same(hostKey));
 
       await session.dispose();
     });

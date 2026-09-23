@@ -23,6 +23,7 @@ flutter:
 dependencies:
   flutter:
     sdk: flutter
+  file_selector: 1.0.3
   flutter_inappwebview: ^6.1.5
   flutter_webxdc_platform_interface:
     path: ../flutter_webxdc_platform_interface

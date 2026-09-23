@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_webxdc_platform_interface/flutter_webxdc_platform_interface.dart';
@@ -14,6 +15,9 @@ class _AppInstance {
   final bool requestInternetAccess;
   final String selfAddr;
   final String selfName;
+  final List<WebxdcUpdate> pendingUpdates = <WebxdcUpdate>[];
+  final List<WebxdcJsSendToChatEvent> sendToChatLog =
+      <WebxdcJsSendToChatEvent>[];
   InAppWebViewController? controller;
 
   _AppInstance({
@@ -24,8 +28,18 @@ class _AppInstance {
   });
 }
 
+typedef WebxdcFilePicker = Future<List<WebxdcImportedFile>> Function({
+  List<String>? extensions,
+  List<String>? mimeTypes,
+  bool multiple,
+});
+
 class WebviewWebxdcPlatform extends WebxdcPlatform {
+  WebviewWebxdcPlatform({WebxdcFilePicker? filePicker})
+      : _filePicker = filePicker ?? _pickFilesWithSelector;
+
   final Map<String, _AppInstance> _apps = {};
+  final WebxdcFilePicker _filePicker;
 
   final StreamController<WebxdcJsSendUpdateEvent> _sendUpdateEvents =
       StreamController.broadcast();
@@ -68,17 +82,13 @@ class WebviewWebxdcPlatform extends WebxdcPlatform {
   Future<void> deliverUpdateToApp(
       String instanceId, WebxdcUpdate update) async {
     final app = _apps[instanceId];
-    if (app == null || app.controller == null) return;
-
-    final updateJson = jsonEncode(update.toJson());
-    final message = jsonEncode({
-      'type': 'deliverUpdate',
-      'update': jsonDecode(updateJson),
-    });
-
-    await app.controller!.evaluateJavascript(
-      source: "window._webxdc_deliverMessage(${jsonEncode(message)});",
-    );
+    if (app == null) return;
+    final controller = app.controller;
+    if (controller == null) {
+      app.pendingUpdates.add(update);
+      return;
+    }
+    await _deliverUpdate(controller, update);
   }
 
   @override
@@ -89,8 +99,21 @@ class WebviewWebxdcPlatform extends WebxdcPlatform {
     String? fileName,
     String? contentType,
   }) async {
-    // Currently, nothing to push back into the JS side for sendToChat unless
-    // there's a response expected, but WebxdcPlatform's sendToChat just returns void.
+    final app = _requireApp(instanceId);
+    if (text == null && fileBytes == null) {
+      throw ArgumentError(
+        'sendToChat: at least one of text or fileBytes must be supplied',
+      );
+    }
+    final event = WebxdcJsSendToChatEvent(
+      instanceId: instanceId,
+      text: text,
+      fileBytes: fileBytes,
+      fileName: fileName,
+      contentType: contentType,
+    );
+    app.sendToChatLog.add(event);
+    _sendToChatEvents.add(event);
   }
 
   @override
@@ -100,7 +123,20 @@ class WebviewWebxdcPlatform extends WebxdcPlatform {
     List<String>? mimeTypes,
     bool multiple = false,
   }) async {
-    return []; // Will implement file picker bridge if time permits
+    _requireApp(instanceId);
+    return _filePicker(
+      extensions: extensions,
+      mimeTypes: mimeTypes,
+      multiple: multiple,
+    );
+  }
+
+  @override
+  Widget buildHostWidget(String instanceId, {Key? key}) {
+    return _DeferredWebviewHost(
+      key: key,
+      builder: () => buildWebView(instanceId),
+    );
   }
 
   @override
@@ -115,10 +151,7 @@ class WebviewWebxdcPlatform extends WebxdcPlatform {
   ///
   /// This must be called after [loadApp] resolves successfully.
   Widget buildWebView(String instanceId) {
-    final app = _apps[instanceId];
-    if (app == null) {
-      throw StateError('Instance $instanceId is not loaded.');
-    }
+    final app = _requireApp(instanceId);
 
     final port = app.server.port;
     final configJson = jsonEncode(<String, Object?>{
@@ -186,7 +219,7 @@ class WebviewWebxdcPlatform extends WebxdcPlatform {
         const binary = atob(file.base64);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        return new File([bytes], file.name, {type: file.mimeType || ''});
+        return new File([bytes], file.name, {type: file.contentType || ''});
       }));
     }
   };
@@ -201,44 +234,231 @@ class WebviewWebxdcPlatform extends WebxdcPlatform {
       initialUserScripts: UnmodifiableListView<UserScript>([userScript]),
       onWebViewCreated: (controller) {
         app.controller = controller;
+        for (final update in app.pendingUpdates) {
+          unawaited(_deliverUpdate(controller, update));
+        }
+        app.pendingUpdates.clear();
 
         controller.addJavaScriptHandler(
-            handlerName: 'webxdc_sendUpdate',
-            callback: (args) {
-              final payload = args[0] as Map<String, dynamic>;
-              _sendUpdateEvents.add(WebxdcJsSendUpdateEvent(
+          handlerName: 'webxdc_sendUpdate',
+          callback: (args) {
+            final payload = _firstMap(args);
+            final update = payload?['update'];
+            final descr = payload?['descr'];
+            if (update is! Map || (descr != null && descr is! String)) {
+              return;
+            }
+            _sendUpdateEvents.add(
+              WebxdcJsSendUpdateEvent(
                 instanceId: instanceId,
-                update: payload['update'] as Map<String, Object?>,
-                descr: payload['descr'] as String?,
-              ));
-            });
+                update: Map<String, Object?>.from(update),
+                descr: descr as String?,
+              ),
+            );
+          },
+        );
 
         controller.addJavaScriptHandler(
-            handlerName: 'webxdc_setUpdateListener',
-            callback: (args) {
-              // JS sets up a listener, dart does not need to intervene as we push blindly.
-            });
+          handlerName: 'webxdc_setUpdateListener',
+          callback: (args) {
+            // JS sets up a listener, Dart does not need to intervene because we
+            // always push/backlog updates from the host side.
+          },
+        );
 
         controller.addJavaScriptHandler(
-            handlerName: 'webxdc_sendToChat',
-            callback: (args) {
-              final payload = args[0] as Map<String, dynamic>;
-              final chatPayload =
-                  payload['payload'] as Map<String, dynamic>? ?? {};
-              _sendToChatEvents.add(WebxdcJsSendToChatEvent(
-                instanceId: instanceId,
-                text: chatPayload['text'] as String?,
-                fileName: chatPayload['name'] as String?,
-                // ignoring base64 file data for now
-              ));
-            });
+          handlerName: 'webxdc_sendToChat',
+          callback: (args) {
+            final payload = _firstMap(args);
+            final event = _parseSendToChatEvent(
+              instanceId: instanceId,
+              payload: payload,
+            );
+            if (event == null) return;
+            app.sendToChatLog.add(event);
+            _sendToChatEvents.add(event);
+          },
+        );
 
         controller.addJavaScriptHandler(
-            handlerName: 'webxdc_importFiles',
-            callback: (args) {
-              // Handled programmatically via platform picker if needed
-            });
+          handlerName: 'webxdc_importFiles',
+          callback: (args) async {
+            final payload = _firstMap(args);
+            final requestId = payload?['requestId'];
+            final filters = payload?['filters'];
+            if (requestId is! String) return;
+            final filterMap = filters is Map
+                ? Map<String, Object?>.from(filters)
+                : const <String, Object?>{};
+            final files = await importFiles(
+              instanceId: instanceId,
+              extensions: _stringList(filterMap['extensions']),
+              mimeTypes: _stringList(filterMap['mimeTypes']),
+              multiple: filterMap['multiple'] == true,
+            );
+            await _deliverImportFilesResult(controller, requestId, files);
+          },
+        );
       },
     );
   }
+
+  @visibleForTesting
+  int pendingUpdateCount(String instanceId) =>
+      _requireApp(instanceId).pendingUpdates.length;
+
+  @visibleForTesting
+  List<WebxdcJsSendToChatEvent> sendToChatLog(String instanceId) =>
+      List<WebxdcJsSendToChatEvent>.unmodifiable(
+        _requireApp(instanceId).sendToChatLog,
+      );
+
+  _AppInstance _requireApp(String instanceId) {
+    final app = _apps[instanceId];
+    if (app == null) {
+      throw StateError('Instance $instanceId is not loaded.');
+    }
+    return app;
+  }
+
+  Future<void> _deliverUpdate(
+    InAppWebViewController controller,
+    WebxdcUpdate update,
+  ) {
+    final updateJson = jsonEncode(update.toJson());
+    final message = jsonEncode(<String, Object?>{
+      'type': 'deliverUpdate',
+      'update': jsonDecode(updateJson),
+    });
+    return controller.evaluateJavascript(
+      source: 'window._webxdc_deliverMessage(${jsonEncode(message)});',
+    );
+  }
+
+  Future<void> _deliverImportFilesResult(
+    InAppWebViewController controller,
+    String requestId,
+    List<WebxdcImportedFile> files,
+  ) {
+    final message = jsonEncode(<String, Object?>{
+      'type': 'importFilesResult',
+      'requestId': requestId,
+      'files': files
+          .map(
+            (file) => <String, Object?>{
+              'name': file.name,
+              'contentType': file.contentType,
+              'base64': base64Encode(file.bytes),
+            },
+          )
+          .toList(growable: false),
+    });
+    return controller.evaluateJavascript(
+      source: 'window._webxdc_deliverMessage(${jsonEncode(message)});',
+    );
+  }
+
+  static Map<String, Object?>? _firstMap(List<dynamic> args) {
+    if (args.isEmpty || args.first is! Map) return null;
+    return Map<String, Object?>.from(args.first as Map);
+  }
+
+  static WebxdcJsSendToChatEvent? _parseSendToChatEvent({
+    required String instanceId,
+    required Map<String, Object?>? payload,
+  }) {
+    final chatPayload = payload?['payload'];
+    if (chatPayload is! Map) return null;
+    final map = Map<String, Object?>.from(chatPayload);
+    final text = map['text'];
+    final file = map['file'];
+    Uint8List? fileBytes;
+    String? fileName;
+    String? contentType;
+    if (file is Map) {
+      final fileMap = Map<String, Object?>.from(file);
+      final base64Data = fileMap['base64'];
+      final name = fileMap['name'];
+      final type = fileMap['contentType'];
+      if (base64Data is String) {
+        fileBytes = Uint8List.fromList(base64Decode(base64Data));
+      }
+      if (name is String && name.isNotEmpty) {
+        fileName = name;
+      }
+      if (type is String && type.isNotEmpty) {
+        contentType = type;
+      }
+    }
+    if (text is! String && fileBytes == null) {
+      return null;
+    }
+    return WebxdcJsSendToChatEvent(
+      instanceId: instanceId,
+      text: text is String ? text : null,
+      fileBytes: fileBytes,
+      fileName: fileName,
+      contentType: contentType,
+    );
+  }
+
+  static List<String>? _stringList(Object? value) {
+    if (value is! List || value.any((item) => item is! String)) return null;
+    return List<String>.from(value);
+  }
+
+  static Future<List<WebxdcImportedFile>> _pickFilesWithSelector({
+    List<String>? extensions,
+    List<String>? mimeTypes,
+    bool multiple = false,
+  }) async {
+    final normalizedExtensions = extensions
+        ?.where((extension) => extension.trim().isNotEmpty)
+        .map((extension) => extension.replaceFirst(RegExp(r'^\.'), ''))
+        .toList(growable: false);
+    final normalizedMimeTypes = mimeTypes
+        ?.where((mimeType) => mimeType.trim().isNotEmpty)
+        .toList(growable: false);
+
+    final acceptedTypeGroups =
+        (normalizedExtensions != null && normalizedExtensions.isNotEmpty) ||
+                (normalizedMimeTypes != null && normalizedMimeTypes.isNotEmpty)
+            ? <XTypeGroup>[
+                XTypeGroup(
+                  label: 'webxdc import',
+                  extensions: normalizedExtensions,
+                  mimeTypes: normalizedMimeTypes,
+                ),
+              ]
+            : const <XTypeGroup>[];
+
+    final selected = multiple
+        ? await openFiles(acceptedTypeGroups: acceptedTypeGroups)
+        : <XFile>[
+            if (await openFile(acceptedTypeGroups: acceptedTypeGroups)
+                case final XFile file)
+              file,
+          ];
+
+    final imported = <WebxdcImportedFile>[];
+    for (final file in selected) {
+      imported.add(
+        WebxdcImportedFile(
+          name: file.name,
+          bytes: await file.readAsBytes(),
+          contentType: file.mimeType,
+        ),
+      );
+    }
+    return List<WebxdcImportedFile>.unmodifiable(imported);
+  }
+}
+
+class _DeferredWebviewHost extends StatelessWidget {
+  const _DeferredWebviewHost({super.key, required this.builder});
+
+  final Widget Function() builder;
+
+  @override
+  Widget build(BuildContext context) => builder();
 }

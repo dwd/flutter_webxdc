@@ -16,19 +16,23 @@ registrant when the root `flutter_webxdc` package is used on the Web. It:
 - applies an iframe CSP that blocks network access unless the manifest sets
   `request_internet_access = true`.
 
-After opening a `WebxdcSession`, a Flutter Web host attaches the iframe to its
-chosen DOM element:
+After opening a `WebxdcSession`, a Flutter Web host can render the app through
+the shared root-package widget API:
 
 ```dart
-import 'dart:html' as html;
-
 import 'package:flutter_webxdc/flutter_webxdc.dart';
-import 'package:flutter_webxdc_web/flutter_webxdc_web.dart';
 
 final session = await WebxdcSession.open(/* ... */);
-final webPlatform = WebxdcPlatform.instance as WebWebxdcPlatform;
-webPlatform.attachToElement(session.instanceId, html.document.querySelector('#app')!);
+
+Widget build(BuildContext context) {
+  return session.buildHostWidget();
+  // Or: return WebxdcHostView(session: session);
+}
 ```
+
+`WebWebxdcPlatform.attachToElement()` and `iframeFor()` remain available as
+lower-level browser-only escape hatches, but ordinary Flutter hosts no longer
+need a backend-specific cast just to render the app.
 
 ## Limitations
 

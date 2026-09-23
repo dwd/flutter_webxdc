@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_webxdc_platform_interface/flutter_webxdc_platform_interface.dart';
 
 /// In-memory [WebxdcPlatform] implementation used as the default backend
@@ -124,6 +125,40 @@ class MemoryWebxdcPlatform extends WebxdcPlatform {
   }
 
   @override
+  Widget buildHostWidget(String instanceId, {Key? key}) {
+    final app = _requireApp(instanceId);
+    return DecoratedBox(
+      key: key,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F5F7),
+        border: Border.all(color: const Color(0xFFB0BEC5)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('flutter_webxdc_memory'),
+              const SizedBox(height: 8),
+              Text(
+                'No native/browser renderer is registered for "$instanceId".',
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Loaded ${app.files.length} archive files for ${app.selfName}.',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
   Future<void> disposeApp(String instanceId) async {
     _apps.remove(instanceId);
     _importQueues.remove(instanceId);
@@ -149,6 +184,31 @@ class MemoryWebxdcPlatform extends WebxdcPlatform {
         descr: descr,
       ),
     );
+  }
+
+  /// Simulates mini-app JS calling `window.webxdc.sendToChat(payload)`.
+  void simulateJsSendToChat(
+    String instanceId, {
+    String? text,
+    List<int>? fileBytes,
+    String? fileName,
+    String? contentType,
+  }) {
+    _requireApp(instanceId);
+    if (text == null && fileBytes == null) {
+      throw ArgumentError(
+        'simulateJsSendToChat: at least one of text or fileBytes must be supplied',
+      );
+    }
+    final event = WebxdcJsSendToChatEvent(
+      instanceId: instanceId,
+      text: text,
+      fileBytes: fileBytes,
+      fileName: fileName,
+      contentType: contentType,
+    );
+    _requireApp(instanceId).sendToChatLog.add(event);
+    _sendToChatController.add(event);
   }
 
   /// Pre-seeds the files that the next [importFiles] call for [instanceId]

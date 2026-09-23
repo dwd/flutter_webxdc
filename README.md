@@ -37,7 +37,8 @@ Packages that exist today:
     protection.
   - `WebxdcController` — per-instance update log/replay API.
   - `WebxdcSession` / `FlutterWebxdc` — wires the shared core to a registered
-    `WebxdcPlatform` (load app, forward updates, dispose).
+    `WebxdcPlatform` (load app, forward updates, expose `sendToChat` requests,
+    render, dispose).
 - **[`flutter_webxdc_platform_interface`](flutter_webxdc_platform_interface/README.md)**
   — the stable Dart contract per-platform packages must implement:
   - `WebxdcUpdate`, `WebxdcImportedFile`, JS-bridge event types.
@@ -52,12 +53,10 @@ Packages that exist today:
 - **[`flutter_webxdc_webview`](flutter_webxdc_webview/README.md)** — native `WebxdcPlatform` implementation utilizing `flutter_inappwebview`, supporting Android, iOS, macOS, and Windows. It injects the `window.webxdc` JS bridge and dynamically serves extracted archive content through a local `HttpServer` loopback.
 
 Not implemented yet: a Linux native host (`flutter_inappwebview` does not
-support Linux), the shared `WebxdcPlatform` interface does not yet expose a
-way to render the native WebView widget (`flutter_webxdc_webview` exposes
-this as package-specific `buildWebView(instanceId)` API instead), and
-`flutter_webxdc_webview`'s `sendToChat`/`importFiles` are stubs. The Web
-implementation has documented asset rewriting and `sendToChat` file-payload
-limitations. See [doc/design.md](doc/design.md) for the detailed
+support Linux), broader Web asset virtualization (CSS `url(...)`, dynamic
+imports, service workers), Web JS `sendToChat` file-payload forwarding, and
+native/device-level verification of the `flutter_inappwebview` runtime path in
+this repository. See [doc/design.md](doc/design.md) for the detailed
 architecture, current limitations, and roadmap.
 
 ## Usage
@@ -79,6 +78,15 @@ final session = await WebxdcSession.open(
 session.updates.listen((update) {
   // Send `update` to other chat peers over your own transport.
 });
+session.sendToChatRequests.listen((request) {
+  // Open your host app's compose/share UI for request.text / request.fileBytes.
+});
+
+Widget build(BuildContext context) {
+  return session.buildHostWidget();
+  // Or: return WebxdcHostView(session: session);
+}
+
 session.sendUpdate({'payload': {'counter': 1}, 'info': 'bumped'});
 session.deliverPeerUpdate({'payload': {'counter': 2}}); // from a peer
 
@@ -87,22 +95,24 @@ await session.dispose();
 
 On Flutter Web the plugin registrant installs `WebWebxdcPlatform`; on
 Android/iOS/macOS/Windows it installs `WebviewWebxdcPlatform`
-(`flutter_webxdc_webview`), which additionally requires calling
-`WebviewWebxdcPlatform.buildWebView(instanceId)` to obtain the `InAppWebView`
-widget to render in your widget tree. If neither registers itself (e.g. on
-Linux, or in plain `flutter test` runs), `WebxdcSession` falls back to
-`MemoryWebxdcPlatform`, keeping the full shared plugin path testable without
-a device/browser. See [doc/design.md](doc/design.md) and
+(`flutter_webxdc_webview`). In both cases the root API now exposes the render
+surface directly through `session.buildHostWidget()` / `WebxdcHostView`, so no
+backend-specific cast is required just to display the app. If neither platform
+package registers itself (e.g. on Linux, or in plain `flutter test` runs),
+`WebxdcSession` falls back to `MemoryWebxdcPlatform`, which renders a
+non-interactive placeholder while keeping the full shared plugin path testable
+without a device/browser. See [doc/design.md](doc/design.md),
+[flutter_webxdc_web/README.md](flutter_webxdc_web/README.md), and
 [flutter_webxdc_webview's README](flutter_webxdc_webview/README.md) for
-native usage details.
+platform-specific details.
 
 ## Additional information
 
 Please refer to [doc/design.md](doc/design.md) for the target architecture,
 the JS API contract, and testing strategy. Contributions are welcome for a
-Linux native host and for closing the remaining gaps in
-[`flutter_webxdc_webview`](flutter_webxdc_webview/README.md) (`sendToChat`,
-`importFiles`, exposing `buildWebView` through the shared `WebxdcPlatform`
-interface); new platform packages should mirror
+Linux native host and for closing the remaining Web hardening/runtime-test gaps
+in [`flutter_webxdc_web`](flutter_webxdc_web/README.md) and
+[`flutter_webxdc_webview`](flutter_webxdc_webview/README.md); new platform
+packages should mirror
 [`flutter_webxdc_memory`](flutter_webxdc_memory/README.md)'s structure
 (`registerWith()`, extends `WebxdcPlatform`, emits JS-bridge events).

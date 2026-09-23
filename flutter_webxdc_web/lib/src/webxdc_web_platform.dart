@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui_web' as ui_web;
 // `dart:html` provides the browser compatibility layer used here until this
 // first Web backend can move its event/file APIs to package:web.
 // ignore: deprecated_member_use
 import 'dart:html' as html;
 import 'dart:typed_data';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_web_plugins/flutter_web_plugins.dart';
 import 'package:flutter_webxdc_platform_interface/flutter_webxdc_platform_interface.dart';
 
@@ -84,12 +86,24 @@ class WebWebxdcPlatform extends WebxdcPlatform {
         assetUrls: assetUrls,
         config: config,
       );
+    final viewType = 'flutter_webxdc.web/$instanceId/$token';
+    ui_web.platformViewRegistry.registerViewFactory(
+      viewType,
+      (viewId) => iframe,
+    );
 
     _apps[instanceId] = _WebAppInstance(
       iframe: iframe,
       token: token,
+      viewType: viewType,
       requestInternetAccess: requestInternetAccess,
     );
+  }
+
+  @override
+  Widget buildHostWidget(String instanceId, {Key? key}) {
+    final app = _requireApp(instanceId);
+    return HtmlElementView(key: key, viewType: app.viewType);
   }
 
   /// Appends the sandboxed iframe for [instanceId] to [container].
@@ -361,11 +375,13 @@ class _WebAppInstance {
   _WebAppInstance({
     required this.iframe,
     required this.token,
+    required this.viewType,
     required this.requestInternetAccess,
   });
 
   final html.IFrameElement iframe;
   final String token;
+  final String viewType;
   final bool requestInternetAccess;
   final List<WebxdcUpdate> deliveredUpdates = <WebxdcUpdate>[];
   final List<WebxdcJsSendToChatEvent> sendToChatLog =
