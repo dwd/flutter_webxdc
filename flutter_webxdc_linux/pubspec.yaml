@@ -1,0 +1,35 @@
+name: flutter_webxdc_linux
+description: >-
+  Linux implementation of the flutter_webxdc plugin. flutter_inappwebview
+  (used by flutter_webxdc_webview for Android/iOS/macOS/Windows) does not
+  support Linux, so this package hosts extracted `.xdc` assets over a real
+  loopback HTTP server (shared WebxdcLocalServer) with the same
+  Content-Security-Policy network-isolation contract, and offers an
+  explicit "open in browser" action instead of an embedded WebView. See
+  doc/design.md in the flutter_webxdc repository for the full rationale
+  and known limitations.
+version: 0.0.1
+publish_to: none
+
+environment:
+  sdk: ^3.2.0
+  flutter: ">=3.16.0"
+
+flutter:
+  plugin:
+    implements: flutter_webxdc
+    platforms:
+      linux:
+        dartPluginClass: LinuxWebxdcPlugin
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_webxdc_platform_interface:
+    path: ../flutter_webxdc_platform_interface
+  url_launcher: ^6.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0

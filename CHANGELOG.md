@@ -1,5 +1,35 @@
 ## 0.0.1 (In Development)
 
+* Add `flutter_webxdc_linux/`, a real Linux `WebxdcPlatform` implementation,
+  registered as the root package's `default_package` for `linux`.
+  `flutter_inappwebview` does not support Linux and no other maintained,
+  embeddable Linux WebView plugin exists today, so instead of leaving Linux
+  unimplemented, `flutter_webxdc_linux` hosts `.xdc` assets over the same
+  loopback HTTP server used by `flutter_webxdc_webview`, and its
+  `buildHostWidget` surfaces an explicit, injectable "open in browser"
+  action (`url_launcher`) rather than a silent placeholder or a fake
+  embedded renderer. `sendToChat` is real (validates + emits shared
+  events); `importFiles` currently always returns an empty list (no native
+  Linux picker yet). There is intentionally **no live `window.webxdc` JS
+  bridge** on this platform, since the app runs in an external browser tab
+  — documented as the primary, honest limitation rather than hidden.
+* Extract `WebxdcServer` out of `flutter_webxdc_webview` into
+  `flutter_webxdc_platform_interface` as the shared `WebxdcLocalServer`, so
+  both `flutter_webxdc_webview` and the new `flutter_webxdc_linux` reuse one
+  loopback-HTTP-host/CSP implementation instead of duplicating it.
+  `flutter_webxdc_webview`'s `WebxdcServer` is kept as a backward-compatible
+  type alias so existing imports/tests are unaffected.
+* Add `flutter_webxdc_linux/test/linux_webxdc_platform_test.dart` (real
+  loopback `HttpServer`/`HttpClient` coverage of `loadApp`/`sendToChat`/
+  `importFiles`/`deliverUpdateToApp`/`disposeApp`, including the
+  `request_internet_access` CSP contract) and
+  `linux_webxdc_platform_widget_test.dart` (a `tester.runAsync`-based widget
+  test of `buildHostWidget`'s "open in browser" affordance with an injected
+  `UrlOpener`).
+* Update `README.md` and `doc/design.md` to document `flutter_webxdc_linux`
+  as an implemented platform with its real capabilities and its one
+  intentional, disclosed limitation (no embedded JS bridge), instead of
+  Linux being entirely absent from the target-platform list.
 * Expose a backend-agnostic render surface through the shared/root API:
   `WebxdcPlatform` now defines `buildHostWidget(instanceId)`, `WebxdcSession`
   exposes `buildHostWidget()` plus `sendToChatRequests`, and the root package

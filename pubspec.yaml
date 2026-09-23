@@ -35,6 +35,12 @@ dependencies:
   # Native platform implementation utilizing flutter_inappwebview
   flutter_webxdc_webview:
     path: flutter_webxdc_webview
+  # Linux implementation: flutter_inappwebview does not support Linux, so
+  # this hosts .xdc assets over a real loopback HTTP server and exposes an
+  # "open in browser" host widget instead of an embedded WebView (see
+  # doc/design.md §2/§6).
+  flutter_webxdc_linux:
+    path: flutter_webxdc_linux
 
 dev_dependencies:
   flutter_test:
@@ -58,6 +64,8 @@ flutter:
         default_package: flutter_webxdc_webview
       windows:
         default_package: flutter_webxdc_webview
+      linux:
+        default_package: flutter_webxdc_linux
 
   # To add assets to your package, add an assets section, like this:
   # assets:

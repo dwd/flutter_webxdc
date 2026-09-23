@@ -13,5 +13,6 @@ library;
 
 export 'src/webxdc_imported_file.dart';
 export 'src/webxdc_js_events.dart';
+export 'src/webxdc_local_server.dart';
 export 'src/webxdc_platform.dart';
 export 'src/webxdc_update.dart';
