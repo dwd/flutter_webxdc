@@ -26,14 +26,15 @@ It targets the following platforms:
   (`flutter_inappwebview`-based native hosting).
 - **Web** — via `flutter_webxdc_web` (sandboxed iframe + `postMessage`
   hosting).
-- **Linux** — via `flutter_webxdc_linux`. `flutter_inappwebview` does not
-  support Linux, so instead of an embedded WebView this package serves the
-  `.xdc` app over a real loopback HTTP server and offers an explicit "open
-  in browser" action; there is no live `window.webxdc` JS bridge for apps
-  opened this way. See
+- **Linux** — via `flutter_webxdc_linux`, using
+  [`flutter_inappwebview_forge`](https://pub.dev/packages/flutter_inappwebview_forge)
+  (a drop-in-API-compatible fork of `flutter_inappwebview` with a native
+  Linux/WPE WebKit backend) for a real, embedded, JS-bridged WebView.
+  Building/running on Linux requires the system WPE WebKit runtime and dev
+  packages to be installed. See
   [flutter_webxdc_linux/README.md](flutter_webxdc_linux/README.md) and
   [doc/design.md](doc/design.md#2-target-federated-package-layout) for
-  details and the follow-up plan.
+  details.
 
 Packages that exist today:
 - **`flutter_webxdc`** (this package) — the app-facing API:
@@ -59,18 +60,24 @@ Packages that exist today:
 - **[`flutter_webxdc_linux`](flutter_webxdc_linux/README.md)** — Linux
   `WebxdcPlatform` implementation. Hosts `.xdc` assets over the same
   loopback `HttpServer`/CSP contract as `flutter_webxdc_webview` (shared
-  `WebxdcLocalServer` from `flutter_webxdc_platform_interface`), but has no
-  embeddable in-app WebView to inject `window.webxdc` into; its
-  `buildHostWidget()` instead surfaces an "open in browser" action.
+  `WebxdcLocalServer` from `flutter_webxdc_platform_interface`) and
+  renders each app in a real, embedded, JS-bridged WebView using
+  `flutter_inappwebview_forge` — a drop-in-API-compatible fork of
+  `flutter_inappwebview` whose Linux backend is built on WPE WebKit,
+  chosen over the official package's `6.2.0`-series prerelease/beta for
+  API stability. Building/running on Linux requires the system WPE
+  WebKit runtime/dev packages to be installed.
 
-Not implemented yet: an embedded, JS-bridged renderer for Linux (no
-maintained, embeddable Linux WebView plugin exists today), broader Web
-asset virtualization (CSS `url(...)`, dynamic imports, service workers),
-Web JS `sendToChat` file-payload forwarding, a native file picker for
-`flutter_webxdc_linux`'s `importFiles`, and native/device-level
-verification of the `flutter_inappwebview` runtime path in this
-repository. See [doc/design.md](doc/design.md) for the detailed
-architecture, current limitations, and roadmap.
+Not implemented yet: broader Web asset virtualization (CSS `url(...)`,
+dynamic imports, service workers), Web JS `sendToChat` file-payload
+forwarding, and native/device-level verification of the
+`flutter_inappwebview`/`flutter_inappwebview_forge` runtime paths in this
+repository — in particular, `flutter build linux` could not be run in
+this repository's sandboxed environment since the system WPE WebKit
+development packages are not installed there (only `flutter pub get`,
+`dart format`, `flutter analyze`, and `flutter test` could be verified
+for `flutter_webxdc_linux`). See [doc/design.md](doc/design.md) for the
+detailed architecture, current limitations, and roadmap.
 
 ## Usage
 
@@ -112,11 +119,12 @@ Android/iOS/macOS/Windows it installs `WebviewWebxdcPlatform`
 (`flutter_webxdc_linux`). In all cases the root API now exposes the render
 surface directly through `session.buildHostWidget()` / `WebxdcHostView`, so no
 backend-specific cast is required just to display the app — on Linux this
-renders an "open in browser" affordance rather than an embedded WebView. If
-no platform package registers itself at all (e.g. in plain `flutter test`
-runs), `WebxdcSession` falls back to `MemoryWebxdcPlatform`, which renders a
-non-interactive placeholder while keeping the full shared plugin path testable
-without a device/browser. See [doc/design.md](doc/design.md),
+now renders a real, embedded, JS-bridged WebView rather than an "open in
+browser" affordance. If no platform package registers itself at all (e.g. in
+plain `flutter test` runs), `WebxdcSession` falls back to
+`MemoryWebxdcPlatform`, which renders a non-interactive placeholder while
+keeping the full shared plugin path testable without a device/browser. See
+[doc/design.md](doc/design.md),
 [flutter_webxdc_web/README.md](flutter_webxdc_web/README.md),
 [flutter_webxdc_webview's README](flutter_webxdc_webview/README.md), and
 [flutter_webxdc_linux's README](flutter_webxdc_linux/README.md) for
@@ -125,9 +133,10 @@ platform-specific details.
 ## Additional information
 
 Please refer to [doc/design.md](doc/design.md) for the target architecture,
-the JS API contract, and testing strategy. Contributions are welcome for a
-truly embedded/JS-bridged Linux WebView (once a maintained, embeddable
-Linux WebView plugin exists) and for closing the remaining Web
+the JS API contract, and testing strategy. Contributions are welcome for
+native/device-level verification of the `flutter_inappwebview_forge` Linux
+build (this repository's sandbox lacks the system WPE WebKit dev packages
+needed to run `flutter build linux`) and for closing the remaining Web
 hardening/runtime-test gaps in
 [`flutter_webxdc_web`](flutter_webxdc_web/README.md) and
 [`flutter_webxdc_webview`](flutter_webxdc_webview/README.md); new platform

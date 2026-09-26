@@ -1,25 +1,22 @@
 import 'dart:async';
+import 'dart:collection';
+import 'dart:convert';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_inappwebview_forge/flutter_inappwebview_forge.dart';
 import 'package:flutter_webxdc_platform_interface/flutter_webxdc_platform_interface.dart';
-import 'package:url_launcher/url_launcher.dart' as url_launcher;
-
-/// Function used to open a URL in the system's default browser.
-///
-/// Matches [url_launcher.launchUrl]'s signature closely enough to be
-/// injected in tests without depending on a real browser/desktop
-/// environment being available.
-typedef UrlOpener = Future<bool> Function(Uri url);
 
 class _AppInstance {
   final WebxdcLocalServer server;
   final bool requestInternetAccess;
   final String selfAddr;
   final String selfName;
-  final List<WebxdcUpdate> deliveredUpdates = <WebxdcUpdate>[];
+  final List<WebxdcUpdate> pendingUpdates = <WebxdcUpdate>[];
   final List<WebxdcJsSendToChatEvent> sendToChatLog =
       <WebxdcJsSendToChatEvent>[];
+  InAppWebViewController? controller;
 
   _AppInstance({
     required this.server,
@@ -27,45 +24,56 @@ class _AppInstance {
     required this.selfAddr,
     required this.selfName,
   });
-
-  Uri get url => Uri.parse('http://127.0.0.1:${server.port}/index.html');
 }
+
+/// Function used to pick files for `importFiles`.
+///
+/// Matches the signature the webxdc JS bridge needs closely enough to be
+/// injected in tests without depending on a real native file-picker dialog
+/// being available.
+typedef WebxdcFilePicker = Future<List<WebxdcImportedFile>> Function({
+  List<String>? extensions,
+  List<String>? mimeTypes,
+  bool multiple,
+});
 
 /// Linux implementation of [WebxdcPlatform].
 ///
-/// `flutter_inappwebview` (used by `flutter_webxdc_webview` for
-/// Android/iOS/macOS/Windows) does not support Linux, and there is no
-/// other maintained, embeddable in-app WebView plugin for Linux that this
-/// repository can depend on today (see doc/design.md §2/§6). Rather than
-/// leaving Linux entirely unimplemented, this platform still does real
-/// work:
+/// Unlike the previous "open in browser" fallback, this hosts each `.xdc`
+/// app in a real, embedded, JS-bridged WebView using
+/// [`flutter_inappwebview_forge`](https://pub.dev/packages/flutter_inappwebview_forge),
+/// a drop-in-API-compatible fork of `flutter_inappwebview` that ships a
+/// native Linux backend (`flutter_inappwebview_forge_linux`) built on WPE
+/// WebKit. It was chosen over the official `flutter_inappwebview` package
+/// (whose Linux support is only available in a `6.2.0`-series prerelease/
+/// beta) for API stability while still exposing the exact same class names
+/// used by the shared native bridge code below (`InAppWebView`,
+/// `InAppWebViewController`, `UserScript`, `addJavaScriptHandler`,
+/// `evaluateJavascript`, …). See doc/design.md §2/§6 for the full
+/// rationale and the system-level WPE WebKit dependency this pulls in.
+///
+/// Structurally this mirrors `flutter_webxdc_webview`'s
+/// `WebviewWebxdcPlatform` almost line-for-line:
 ///
 /// - It hosts the extracted `.xdc` file tree over a genuine loopback HTTP
 ///   server ([WebxdcLocalServer], shared with `flutter_webxdc_webview`),
 ///   enforcing the same `request_internet_access` Content-Security-Policy
-///   contract as the native hosts.
-/// - [buildHostWidget] returns an explicit widget (not a silent no-op
-///   placeholder) that surfaces the served URL and lets the user open it
-///   in their system browser via [UrlOpener].
-///
-/// Because the app runs in an external browser tab rather than an
-/// embedded, JS-bridged surface, there is **no live `window.webxdc` JS
-/// bridge**: `sendUpdate`/`setUpdateListener` calls made by a mini app
-/// opened this way are not observed by this platform. [sendToChat] and
-/// [importFiles] are available as host-driven operations (e.g. so a host
-/// app's own chat/file UI can still call them programmatically), and are
-/// recorded for inspection/testing exactly like `flutter_webxdc_memory`.
-/// This limitation is intentional and documented in doc/design.md §6.
+///   contract as the other native hosts.
+/// - [buildHostWidget] returns a real, embedded [InAppWebView] with an
+///   injected `window.webxdc` JS shim, bridged through
+///   `addJavaScriptHandler`/`callHandler`/`evaluateJavascript`.
+/// - Updates delivered before the underlying [InAppWebViewController]
+///   exists are queued and flushed once it is created.
 class LinuxWebxdcPlatform extends WebxdcPlatform {
-  LinuxWebxdcPlatform({UrlOpener? urlOpener})
-      : _urlOpener = urlOpener ?? url_launcher.launchUrl;
+  LinuxWebxdcPlatform({WebxdcFilePicker? filePicker})
+      : _filePicker = filePicker ?? _pickFilesWithSelector;
 
   static void registerWith() {
     WebxdcPlatform.instance = LinuxWebxdcPlatform();
   }
 
-  final UrlOpener _urlOpener;
   final Map<String, _AppInstance> _apps = {};
+  final WebxdcFilePicker _filePicker;
 
   final StreamController<WebxdcJsSendUpdateEvent> _sendUpdateEvents =
       StreamController.broadcast();
@@ -115,14 +123,15 @@ class LinuxWebxdcPlatform extends WebxdcPlatform {
 
   @override
   Future<void> deliverUpdateToApp(
-    String instanceId,
-    WebxdcUpdate update,
-  ) async {
-    // No embedded/JS-bridged renderer exists for this instance, so there
-    // is no `setUpdateListener` callback to forward the update to. It is
-    // still recorded (see [deliveredUpdates]) so host apps and tests can
-    // observe what *would* have been delivered.
-    _requireApp(instanceId).deliveredUpdates.add(update);
+      String instanceId, WebxdcUpdate update) async {
+    final app = _apps[instanceId];
+    if (app == null) return;
+    final controller = app.controller;
+    if (controller == null) {
+      app.pendingUpdates.add(update);
+      return;
+    }
+    await _deliverUpdate(controller, update);
   }
 
   @override
@@ -133,7 +142,7 @@ class LinuxWebxdcPlatform extends WebxdcPlatform {
     String? fileName,
     String? contentType,
   }) async {
-    _requireApp(instanceId);
+    final app = _requireApp(instanceId);
     if (text == null && fileBytes == null) {
       throw ArgumentError(
         'sendToChat: at least one of text or fileBytes must be supplied',
@@ -146,7 +155,7 @@ class LinuxWebxdcPlatform extends WebxdcPlatform {
       fileName: fileName,
       contentType: contentType,
     );
-    _requireApp(instanceId).sendToChatLog.add(event);
+    app.sendToChatLog.add(event);
     _sendToChatEvents.add(event);
   }
 
@@ -158,20 +167,18 @@ class LinuxWebxdcPlatform extends WebxdcPlatform {
     bool multiple = false,
   }) async {
     _requireApp(instanceId);
-    // No native file-picker integration is wired up yet for this
-    // fallback platform; host apps that need `importFiles` on Linux
-    // should provide their own picker until a real one lands here.
-    return const <WebxdcImportedFile>[];
+    return _filePicker(
+      extensions: extensions,
+      mimeTypes: mimeTypes,
+      multiple: multiple,
+    );
   }
 
   @override
   Widget buildHostWidget(String instanceId, {Key? key}) {
-    final app = _requireApp(instanceId);
-    return _LinuxHostView(
+    return _DeferredWebviewHost(
       key: key,
-      url: app.url,
-      selfName: app.selfName,
-      onOpenInBrowser: () => _urlOpener(app.url),
+      builder: () => buildWebView(instanceId),
     );
   }
 
@@ -183,18 +190,172 @@ class LinuxWebxdcPlatform extends WebxdcPlatform {
     }
   }
 
-  /// The URL the served app for [instanceId] is reachable at.
+  /// Builds the [InAppWebView] widget for the given [instanceId].
   ///
-  /// Exposed so host apps can build their own custom UI around
-  /// [buildHostWidget]'s default "open in browser" affordance if desired.
-  Uri urlOf(String instanceId) => _requireApp(instanceId).url;
+  /// This must be called after [loadApp] resolves successfully.
+  Widget buildWebView(String instanceId) {
+    final app = _requireApp(instanceId);
 
-  /// Updates that would have been delivered to [instanceId]'s
-  /// `setUpdateListener`, in delivery order. There is no live JS bridge
-  /// on this platform, so this is a record for inspection/testing only.
+    final port = app.server.port;
+    final configJson = jsonEncode(<String, Object?>{
+      'instanceId': instanceId,
+      'selfAddr': app.selfAddr,
+      'selfName': app.selfName,
+    }).replaceAll('</', r'<\/');
+
+    final userScript = UserScript(
+      source: '''
+(() => {
+  'use strict';
+  const config = $configJson;
+  const backlog = [];
+  const importRequests = new Map();
+  let listener = null;
+  let nextRequestId = 0;
+
+  const emit = (type, payload = {}) => {
+    window.flutter_inappwebview.callHandler('webxdc_' + type, payload);
+  };
+  
+  const replay = (serial) => {
+    if (!listener) return;
+    backlog.filter((update) => update.serial > serial).forEach((update) => listener(update));
+  };
+
+  window.webxdc = Object.freeze({
+    selfAddr: config.selfAddr,
+    selfName: config.selfName,
+    sendUpdate(update, descr) {
+      emit('sendUpdate', {update, descr});
+      return Promise.resolve();
+    },
+    setUpdateListener(callback, serial = 0) {
+      listener = callback;
+      replay(serial);
+      emit('setUpdateListener', {serial});
+      return Promise.resolve();
+    },
+    sendToChat(payload) {
+      emit('sendToChat', {payload});
+      return Promise.resolve();
+    },
+    importFiles(filters = {}) {
+      const requestId = String(++nextRequestId);
+      emit('importFiles', {requestId, filters});
+      return new Promise((resolve) => importRequests.set(requestId, resolve));
+    },
+  });
+
+  window._webxdc_deliverMessage = (messageJson) => {
+    let message;
+    try { message = JSON.parse(messageJson); } catch (_) { return; }
+    if (message.type === 'deliverUpdate') {
+      backlog.push(message.update);
+      if (listener) listener(message.update);
+      return;
+    }
+    if (message.type === 'importFilesResult') {
+      const resolve = importRequests.get(message.requestId);
+      if (!resolve) return;
+      importRequests.delete(message.requestId);
+      resolve((message.files || []).map((file) => {
+        const binary = atob(file.base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        return new File([bytes], file.name, {type: file.contentType || ''});
+      }));
+    }
+  };
+})();
+''',
+      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+    );
+
+    return InAppWebView(
+      initialUrlRequest:
+          URLRequest(url: WebUri('http://127.0.0.1:$port/index.html')),
+      initialUserScripts: UnmodifiableListView<UserScript>([userScript]),
+      onWebViewCreated: (controller) {
+        app.controller = controller;
+        for (final update in app.pendingUpdates) {
+          unawaited(_deliverUpdate(controller, update));
+        }
+        app.pendingUpdates.clear();
+
+        controller.addJavaScriptHandler(
+          handlerName: 'webxdc_sendUpdate',
+          callback: (args) {
+            final payload = _firstMap(args);
+            final update = payload?['update'];
+            final descr = payload?['descr'];
+            if (update is! Map || (descr != null && descr is! String)) {
+              return;
+            }
+            _sendUpdateEvents.add(
+              WebxdcJsSendUpdateEvent(
+                instanceId: instanceId,
+                update: Map<String, Object?>.from(update),
+                descr: descr as String?,
+              ),
+            );
+          },
+        );
+
+        controller.addJavaScriptHandler(
+          handlerName: 'webxdc_setUpdateListener',
+          callback: (args) {
+            // JS sets up a listener, Dart does not need to intervene because we
+            // always push/backlog updates from the host side.
+          },
+        );
+
+        controller.addJavaScriptHandler(
+          handlerName: 'webxdc_sendToChat',
+          callback: (args) {
+            final payload = _firstMap(args);
+            final event = _parseSendToChatEvent(
+              instanceId: instanceId,
+              payload: payload,
+            );
+            if (event == null) return;
+            app.sendToChatLog.add(event);
+            _sendToChatEvents.add(event);
+          },
+        );
+
+        controller.addJavaScriptHandler(
+          handlerName: 'webxdc_importFiles',
+          callback: (args) async {
+            final payload = _firstMap(args);
+            final requestId = payload?['requestId'];
+            final filters = payload?['filters'];
+            if (requestId is! String) return;
+            final filterMap = filters is Map
+                ? Map<String, Object?>.from(filters)
+                : const <String, Object?>{};
+            final files = await importFiles(
+              instanceId: instanceId,
+              extensions: _stringList(filterMap['extensions']),
+              mimeTypes: _stringList(filterMap['mimeTypes']),
+              multiple: filterMap['multiple'] == true,
+            );
+            await _deliverImportFilesResult(controller, requestId, files);
+          },
+        );
+      },
+    );
+  }
+
+  /// The loopback port [instanceId]'s `.xdc` assets are served on.
+  ///
+  /// Exposed so host apps/tests can inspect the served origin without
+  /// depending on the widget internals of [buildWebView].
   @visibleForTesting
-  List<WebxdcUpdate> deliveredUpdates(String instanceId) =>
-      List<WebxdcUpdate>.unmodifiable(_requireApp(instanceId).deliveredUpdates);
+  int portOf(String instanceId) => _requireApp(instanceId).server.port;
+
+  @visibleForTesting
+  int pendingUpdateCount(String instanceId) =>
+      _requireApp(instanceId).pendingUpdates.length;
 
   @visibleForTesting
   List<WebxdcJsSendToChatEvent> sendToChatLog(String instanceId) =>
@@ -209,60 +370,145 @@ class LinuxWebxdcPlatform extends WebxdcPlatform {
     }
     return app;
   }
-}
 
-class _LinuxHostView extends StatelessWidget {
-  const _LinuxHostView({
-    super.key,
-    required this.url,
-    required this.selfName,
-    required this.onOpenInBrowser,
-  });
-
-  final Uri url;
-  final String selfName;
-  final Future<bool> Function() onOpenInBrowser;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: const Color(0xFFF3F5F7),
-        border: Border.all(color: const Color(0xFFB0BEC5)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Directionality(
-          textDirection: TextDirection.ltr,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('flutter_webxdc_linux'),
-              const SizedBox(height: 8),
-              const Text(
-                'No embeddable in-app WebView is available on Linux yet '
-                '(flutter_inappwebview does not support Linux). This app '
-                'is served locally and can be opened in your browser.',
-              ),
-              const SizedBox(height: 4),
-              Text('Hosted for $selfName at $url'),
-              const SizedBox(height: 8),
-              GestureDetector(
-                onTap: onOpenInBrowser,
-                child: const Text(
-                  'Open in browser',
-                  style: TextStyle(
-                    color: Color(0xFF1565C0),
-                    decoration: TextDecoration.underline,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+  Future<void> _deliverUpdate(
+    InAppWebViewController controller,
+    WebxdcUpdate update,
+  ) {
+    final updateJson = jsonEncode(update.toJson());
+    final message = jsonEncode(<String, Object?>{
+      'type': 'deliverUpdate',
+      'update': jsonDecode(updateJson),
+    });
+    return controller.evaluateJavascript(
+      source: 'window._webxdc_deliverMessage(${jsonEncode(message)});',
     );
   }
+
+  Future<void> _deliverImportFilesResult(
+    InAppWebViewController controller,
+    String requestId,
+    List<WebxdcImportedFile> files,
+  ) {
+    final message = jsonEncode(<String, Object?>{
+      'type': 'importFilesResult',
+      'requestId': requestId,
+      'files': files
+          .map(
+            (file) => <String, Object?>{
+              'name': file.name,
+              'contentType': file.contentType,
+              'base64': base64Encode(file.bytes),
+            },
+          )
+          .toList(growable: false),
+    });
+    return controller.evaluateJavascript(
+      source: 'window._webxdc_deliverMessage(${jsonEncode(message)});',
+    );
+  }
+
+  static Map<String, Object?>? _firstMap(List<dynamic> args) {
+    if (args.isEmpty || args.first is! Map) return null;
+    return Map<String, Object?>.from(args.first as Map);
+  }
+
+  static WebxdcJsSendToChatEvent? _parseSendToChatEvent({
+    required String instanceId,
+    required Map<String, Object?>? payload,
+  }) {
+    final chatPayload = payload?['payload'];
+    if (chatPayload is! Map) return null;
+    final map = Map<String, Object?>.from(chatPayload);
+    final text = map['text'];
+    final file = map['file'];
+    Uint8List? fileBytes;
+    String? fileName;
+    String? contentType;
+    if (file is Map) {
+      final fileMap = Map<String, Object?>.from(file);
+      final base64Data = fileMap['base64'];
+      final name = fileMap['name'];
+      final type = fileMap['contentType'];
+      if (base64Data is String) {
+        fileBytes = Uint8List.fromList(base64Decode(base64Data));
+      }
+      if (name is String && name.isNotEmpty) {
+        fileName = name;
+      }
+      if (type is String && type.isNotEmpty) {
+        contentType = type;
+      }
+    }
+    if (text is! String && fileBytes == null) {
+      return null;
+    }
+    return WebxdcJsSendToChatEvent(
+      instanceId: instanceId,
+      text: text is String ? text : null,
+      fileBytes: fileBytes,
+      fileName: fileName,
+      contentType: contentType,
+    );
+  }
+
+  static List<String>? _stringList(Object? value) {
+    if (value is! List || value.any((item) => item is! String)) return null;
+    return List<String>.from(value);
+  }
+
+  static Future<List<WebxdcImportedFile>> _pickFilesWithSelector({
+    List<String>? extensions,
+    List<String>? mimeTypes,
+    bool multiple = false,
+  }) async {
+    final normalizedExtensions = extensions
+        ?.where((extension) => extension.trim().isNotEmpty)
+        .map((extension) => extension.replaceFirst(RegExp(r'^\.'), ''))
+        .toList(growable: false);
+    final normalizedMimeTypes = mimeTypes
+        ?.where((mimeType) => mimeType.trim().isNotEmpty)
+        .toList(growable: false);
+
+    final acceptedTypeGroups =
+        (normalizedExtensions != null && normalizedExtensions.isNotEmpty) ||
+                (normalizedMimeTypes != null && normalizedMimeTypes.isNotEmpty)
+            ? <XTypeGroup>[
+                XTypeGroup(
+                  label: 'webxdc import',
+                  extensions: normalizedExtensions,
+                  mimeTypes: normalizedMimeTypes,
+                ),
+              ]
+            : const <XTypeGroup>[];
+
+    final selected = multiple
+        ? await openFiles(acceptedTypeGroups: acceptedTypeGroups)
+        : <XFile>[
+            if (await openFile(acceptedTypeGroups: acceptedTypeGroups)
+                case final XFile file)
+              file,
+          ];
+
+    final imported = <WebxdcImportedFile>[];
+    for (final file in selected) {
+      imported.add(
+        WebxdcImportedFile(
+          name: file.name,
+          bytes: await file.readAsBytes(),
+          contentType: file.mimeType,
+        ),
+      );
+    }
+    return List<WebxdcImportedFile>.unmodifiable(imported);
+  }
+}
+
+class _DeferredWebviewHost extends StatelessWidget {
+  const _DeferredWebviewHost({super.key, required this.builder});
+
+  final Widget Function() builder;
+
+  @override
+  Widget build(BuildContext context) => builder();
 }

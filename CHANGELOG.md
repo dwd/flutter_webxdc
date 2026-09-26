@@ -1,5 +1,31 @@
 ## 0.0.1 (In Development)
 
+* Replace `flutter_webxdc_linux`'s "open in browser" fallback with a real,
+  embedded, JS-bridged WebView host, using
+  [`flutter_inappwebview_forge`](https://pub.dev/packages/flutter_inappwebview_forge)
+  `^2.1.77` (a drop-in-API-compatible fork of `flutter_inappwebview` whose
+  `flutter_inappwebview_forge_linux` backend is built on WPE WebKit),
+  chosen over the official `flutter_inappwebview` package's `6.2.0`-series
+  prerelease/beta for API stability. `LinuxWebxdcPlatform` now mirrors
+  `flutter_webxdc_webview`'s `WebviewWebxdcPlatform` almost line-for-line
+  (JS shim injection, `addJavaScriptHandler`/`callHandler`/
+  `evaluateJavascript` bridging, update queuing until the
+  `InAppWebViewController` exists) and adds a real, injectable
+  `file_selector`-backed `importFiles` (previously always returned an
+  empty list); removed the `url_launcher` dependency it replaces.
+  Building/running this package on Linux now requires the system WPE
+  WebKit runtime and dev packages (`wpe-webkit-2.0`/`1.1`/`1.0`,
+  `wpe-platform-2.0` or `wpebackend-fdo-1.0`, `libwpe-1.0`, `epoxy`,
+  `gtk+-3.0` via pkg-config); **`flutter build linux` could not be
+  verified in this repository's sandbox** since those system libraries
+  aren't installed there — only `flutter pub get`, `dart format`,
+  `flutter analyze`, and `flutter test` were run for
+  `flutter_webxdc_linux`. Rewrote `test/linux_webxdc_platform_test.dart`
+  and `test/linux_webxdc_platform_widget_test.dart` accordingly (real
+  loopback-server coverage plus a widget-construction test using a
+  minimal fake `InAppWebViewPlatform`), and updated `README.md`/
+  `doc/design.md` to describe the new backend and its WPE WebKit system
+  dependency.
 * Add `flutter_webxdc_linux/`, a real Linux `WebxdcPlatform` implementation,
   registered as the root package's `default_package` for `linux`.
   `flutter_inappwebview` does not support Linux and no other maintained,

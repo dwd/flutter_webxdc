@@ -1,11 +1,8 @@
 // Unit tests for [LinuxWebxdcPlatform]'s non-widget behavior.
 //
 // These run entirely over loopback HTTP sockets under plain `flutter
-// test` (no device/browser/WebView). Deliberately kept in a
-// `testWidgets`-free file: `TestWidgetsFlutterBinding` intercepts real
-// `Timer`s created by `HttpServer.bind` inside `testWidgets`, so the
-// widget-rendering test lives separately in
-// `linux_webxdc_platform_widget_test.dart` and uses `tester.runAsync`.
+// test` (no device/browser/native WebView). The widget-construction
+// tests live separately in `linux_webxdc_platform_widget_test.dart`.
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -46,10 +43,9 @@ void main() {
         selfName: 'Me',
       );
 
-      final url = platform.urlOf('instance-1');
-      expect(url.host, '127.0.0.1');
+      expect(platform.pendingUpdateCount('instance-1'), 0);
 
-      final response = await _get(url.port, '/');
+      final response = await _get(platform.portOf('instance-1'), '/');
       final body = await response.transform(utf8.decoder).join();
       expect(response.statusCode, HttpStatus.ok);
       expect(body, '<html>hi</html>');
@@ -97,17 +93,31 @@ void main() {
         requestInternetAccess: true,
       );
 
-      final url = platform.urlOf('instance-1');
-      final response = await _get(url.port, '/');
+      final response = await _get(platform.portOf('instance-1'), '/');
       final csp = response.headers.value('content-security-policy');
       expect(csp, contains('https:'));
       expect(csp, contains('wss:'));
+    });
+
+    test('blocks external origins by default in the CSP contract', () async {
+      platform = LinuxWebxdcPlatform();
+      await platform.loadApp(
+        instanceId: 'instance-1',
+        files: _files(),
+        selfAddr: 'me@local',
+        selfName: 'Me',
+      );
+
+      final response = await _get(platform.portOf('instance-1'), '/');
+      final csp = response.headers.value('content-security-policy');
+      expect(csp, isNot(contains('https:')));
+      expect(csp, isNot(contains('wss:')));
     });
   });
 
   group('LinuxWebxdcPlatform.deliverUpdateToApp', () {
     test(
-      'records updates for inspection even without a live JS bridge',
+      'queues updates until the WebView controller exists',
       () async {
         final platform = LinuxWebxdcPlatform();
         addTearDown(() => platform.disposeApp('instance-1'));
@@ -125,9 +135,19 @@ void main() {
         );
         await platform.deliverUpdateToApp('instance-1', update);
 
-        expect(platform.deliveredUpdates('instance-1'), [update]);
+        expect(platform.pendingUpdateCount('instance-1'), 1);
       },
     );
+
+    test('does nothing for an instance that was never loaded', () async {
+      final platform = LinuxWebxdcPlatform();
+      const update = WebxdcUpdate(
+        payload: {'counter': 1},
+        serial: 1,
+        maxSerial: 1,
+      );
+      await platform.deliverUpdateToApp('missing-instance', update);
+    });
   });
 
   group('LinuxWebxdcPlatform.sendToChat', () {
@@ -170,8 +190,25 @@ void main() {
   });
 
   group('LinuxWebxdcPlatform.importFiles', () {
-    test('returns an empty list (no native picker wired up yet)', () async {
-      final platform = LinuxWebxdcPlatform();
+    test('delegates to the configured file picker', () async {
+      List<String>? pickedExtensions;
+      List<String>? pickedMimeTypes;
+      bool? pickedMultiple;
+
+      final platform = LinuxWebxdcPlatform(
+        filePicker: ({extensions, mimeTypes, multiple = false}) async {
+          pickedExtensions = extensions;
+          pickedMimeTypes = mimeTypes;
+          pickedMultiple = multiple;
+          return [
+            WebxdcImportedFile(
+              name: 'picked.txt',
+              bytes: Uint8List.fromList([1, 2, 3]),
+              contentType: 'text/plain',
+            ),
+          ];
+        },
+      );
       addTearDown(() => platform.disposeApp('instance-1'));
       await platform.loadApp(
         instanceId: 'instance-1',
@@ -180,8 +217,26 @@ void main() {
         selfName: 'Me',
       );
 
-      final files = await platform.importFiles(instanceId: 'instance-1');
-      expect(files, isEmpty);
+      final files = await platform.importFiles(
+        instanceId: 'instance-1',
+        extensions: ['txt', '.md'],
+        mimeTypes: ['text/plain'],
+        multiple: true,
+      );
+
+      expect(files, hasLength(1));
+      expect(files.single.name, 'picked.txt');
+      expect(pickedExtensions, ['txt', '.md']);
+      expect(pickedMimeTypes, ['text/plain']);
+      expect(pickedMultiple, isTrue);
+    });
+
+    test('throws for an instance that was never loaded', () async {
+      final platform = LinuxWebxdcPlatform();
+      await expectLater(
+        platform.importFiles(instanceId: 'missing-instance'),
+        throwsStateError,
+      );
     });
   });
 
@@ -194,11 +249,11 @@ void main() {
         selfAddr: 'me@local',
         selfName: 'Me',
       );
-      final url = platform.urlOf('instance-1');
+      final port = platform.portOf('instance-1');
 
       await platform.disposeApp('instance-1');
 
-      await expectLater(_get(url.port, '/'), throwsA(isA<SocketException>()));
+      await expectLater(_get(port, '/'), throwsA(isA<SocketException>()));
     });
   });
 }
