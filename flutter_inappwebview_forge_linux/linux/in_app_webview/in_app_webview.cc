@@ -701,11 +701,16 @@ void InAppWebView::InitWebView(const InAppWebViewCreationParams& params) {
       std::error_code error;
       std::filesystem::create_directories(dataDirectory.value(), error);
       std::filesystem::create_directories(cacheDirectory, error);
-      containerDataManager = webkit_website_data_manager_new(
-          dataDirectory.value().c_str(), cacheDirectory.c_str());
+      containerDataManager = WEBKIT_WEBSITE_DATA_MANAGER(g_object_new(
+          WEBKIT_TYPE_WEBSITE_DATA_MANAGER,
+          "base-data-directory", dataDirectory.value().c_str(),
+          "base-cache-directory", cacheDirectory.c_str(),
+          nullptr));
       if (containerDataManager != nullptr) {
-        containerContext = webkit_web_context_new_with_website_data_manager(
-            containerDataManager);
+        containerContext = WEBKIT_WEB_CONTEXT(g_object_new(
+            WEBKIT_TYPE_WEB_CONTEXT,
+            "website-data-manager", containerDataManager,
+            nullptr));
         g_object_unref(containerDataManager);
         webContext = containerContext;
       }
@@ -894,11 +899,16 @@ void InAppWebView::InitWebView(const InAppWebViewCreationParams& params) {
         std::error_code error;
         std::filesystem::create_directories(dataDirectory.value(), error);
         std::filesystem::create_directories(cacheDirectory, error);
-        containerDataManager = webkit_website_data_manager_new(
-            dataDirectory.value().c_str(), cacheDirectory.c_str());
+        containerDataManager = WEBKIT_WEBSITE_DATA_MANAGER(g_object_new(
+            WEBKIT_TYPE_WEBSITE_DATA_MANAGER,
+            "base-data-directory", dataDirectory.value().c_str(),
+            "base-cache-directory", cacheDirectory.c_str(),
+            nullptr));
         if (containerDataManager != nullptr) {
-          containerContext = webkit_web_context_new_with_website_data_manager(
-              containerDataManager);
+          containerContext = WEBKIT_WEB_CONTEXT(g_object_new(
+              WEBKIT_TYPE_WEB_CONTEXT,
+              "website-data-manager", containerDataManager,
+              nullptr));
           g_object_unref(containerDataManager);
           webContext = containerContext;
         }
@@ -2801,7 +2811,7 @@ void InAppWebView::setSettings(const std::shared_ptr<InAppWebViewSettings> newSe
         newContentBlockers != content_blockers_snapshot_;
 
     // Apply content blockers if they have been updated
-    if (content_blockersChanged && content_blocker_handler_ != nullptr) {
+    if (contentBlockersChanged && content_blocker_handler_ != nullptr) {
       content_blocker_handler_->setContentBlockers(newSettings->contentBlockers, nullptr);
       content_blockers_snapshot_ = newContentBlockers;
     }

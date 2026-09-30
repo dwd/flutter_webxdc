@@ -547,10 +547,12 @@ Platform-specific test scoping follows `AGENTS.md`.
   for the official package to stabilize there. This closes the
   previously-documented "no embedded renderer on Linux" gap, but trades
   it for two new, tracked risks: (1) **the native `flutter_inappwebview_forge_linux`/WPE
-  WebKit build/runtime path is unverified in this repository** — the
-  sandbox this was developed in does not have the system WPE WebKit dev
-  packages installed, so `flutter build linux` could not be run, only
-  VM-level Dart tests; and (2) depending on a community fork rather than
+  WebKit build path needed local fixes to actually work** — the published
+  `1.0.8` release fails to build on Linux (see the vendoring note below);
+  with those fixes applied and vendored, `flutter build linux` has been
+  run successfully against the system WPE WebKit dev packages, but
+  runtime/device verification of the rendered `window.webxdc` page is
+  still outstanding; and (2) depending on a community fork rather than
   the upstream package is itself a maintenance-trajectory risk that
   should be revisited if/when official `flutter_inappwebview` Linux
   support stabilizes out of prerelease, at which point switching
