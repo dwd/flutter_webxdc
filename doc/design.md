@@ -561,6 +561,24 @@ Platform-specific test scoping follows `AGENTS.md`.
   same per-platform-package escape hatch applies there too; the federated
   `platform_interface` package isolates the rest of the plugin from either
   choice.
+- **`flutter_inappwebview_forge_linux` 1.0.8 is vendored locally under
+  `flutter_inappwebview_forge_linux/`, overridden via `dependency_overrides`
+  in both the root `pubspec.yaml` and `flutter_webxdc_linux/pubspec.yaml`.**
+  The published `1.0.8` release on pub.dev fails to build after the
+  package's rename from `flutter_inappwebview_linux`: `linux/CMakeLists.txt`
+  still declares the pre-fork `PLUGIN_NAME`, the public header still lives
+  under the pre-fork `include/flutter_inappwebview_linux/` directory (both
+  mismatching what Flutter's generated CMake/registrant code expects for
+  the new package name), and `linux/in_app_webview/in_app_webview.cc` calls
+  two WPE WebKit functions
+  (`webkit_website_data_manager_new`/`webkit_web_context_new_with_website_data_manager`)
+  that do not exist in current WPE WebKit plus references a
+  `content_blockersChanged` variable that is actually declared as
+  `contentBlockersChanged`. The vendored copy fixes all four issues (see
+  `bug-report.md` for the original report and the corresponding commits for
+  the fixes) so `flutter build linux` succeeds against the system WPE
+  WebKit packages. This override should be dropped once a corrected release
+  ships upstream on pub.dev.
 - **`flutter_webxdc_webview` is still an initial native host rather than a
   fully production-hardened one.** It now implements the shared
   `buildHostWidget(instanceId)` contract, emits/forwards `sendToChat`, uses a

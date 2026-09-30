@@ -47,6 +47,15 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
 
+# Vendored local fork of flutter_inappwebview_forge_linux (1.0.8), pulled in
+# transitively via flutter_webxdc_linux -> flutter_inappwebview_forge, with
+# fixes for stale post-fork naming and WPE WebKit API breakage. See
+# flutter_inappwebview_forge_linux/ and doc/design.md. Remove once those
+# fixes land upstream on pub.dev.
+dependency_overrides:
+  flutter_inappwebview_forge_linux:
+    path: flutter_inappwebview_forge_linux
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 

@@ -37,3 +37,11 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^3.0.0
   flutter_inappwebview_forge_platform_interface: ^1.1.22
+
+# Vendored local fork of flutter_inappwebview_forge_linux (1.0.8) with fixes
+# for stale post-fork naming and WPE WebKit API breakage; see
+# ../flutter_inappwebview_forge_linux and doc/design.md for details. Remove
+# this override once those fixes land upstream on pub.dev.
+dependency_overrides:
+  flutter_inappwebview_forge_linux:
+    path: ../flutter_inappwebview_forge_linux
