@@ -1,3 +1,4 @@
 ## 0.0.1 (In Development)
 
 * Add the initial `flutter_inappwebview`-based native `WebxdcPlatform` implementation for Android, iOS, macOS, and Windows. It creates a local `HttpServer` loopback to serve the extracted `.xdc` assets dynamically to bypass CORS issues, and injects the `window.webxdc` JS bridge.
+* Switch from `flutter_inappwebview` to `flutter_inappwebview_forge` (a drop-in-API-compatible fork). `flutter_webxdc_linux` already depends on the forge fork for its Linux/WPE WebKit backend; depending on both the original package and the fork in the same app made Flutter register two Windows plugins that both declare the native CMake target `flutter_inappwebview_windows_plugin`, which broke `flutter build windows` with "add_library cannot create target ... because another target with the same name already exists." Standardizing on the fork for every platform fixes the Windows build.

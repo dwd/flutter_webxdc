@@ -24,7 +24,17 @@ dependencies:
   flutter:
     sdk: flutter
   file_selector: 1.0.3
-  flutter_inappwebview: ^6.1.5
+  # Uses flutter_inappwebview_forge (a drop-in-API-compatible fork of
+  # flutter_inappwebview) rather than the original flutter_inappwebview
+  # package, because flutter_webxdc_linux also depends on
+  # flutter_inappwebview_forge for its Linux/WPE WebKit backend. Mixing the
+  # original package with the forge fork in the same app makes Flutter
+  # register two different Windows plugins that both declare the native
+  # CMake target `flutter_inappwebview_windows_plugin`, which fails to
+  # configure with "add_library cannot create target ... because another
+  # target with the same name already exists." Standardizing on the forge
+  # fork for every platform (including Windows here) avoids that clash.
+  flutter_inappwebview_forge: ^2.1.77
   flutter_webxdc_platform_interface:
     path: ../flutter_webxdc_platform_interface
 

@@ -5,7 +5,7 @@ import 'dart:convert';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:flutter_inappwebview_forge/flutter_inappwebview_forge.dart';
 import 'package:flutter_webxdc_platform_interface/flutter_webxdc_platform_interface.dart';
 
 import 'webxdc_server.dart';
