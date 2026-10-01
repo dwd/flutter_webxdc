@@ -32,7 +32,10 @@ dependencies:
   # the shared Dart API on native targets.
   flutter_webxdc_web:
     path: flutter_webxdc_web
-  # Native platform implementation utilizing flutter_inappwebview
+  # Native platform implementation utilizing flutter_inappwebview_forge
+  # (also used, on Linux, by flutter_webxdc_linux below; standardizing on
+  # one inappwebview family avoids a Windows CMake target name clash - see
+  # flutter_webxdc_webview/CHANGELOG.md).
   flutter_webxdc_webview:
     path: flutter_webxdc_webview
   # Linux implementation: flutter_inappwebview does not support Linux, so
