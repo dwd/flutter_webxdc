@@ -176,9 +176,28 @@ class LinuxWebxdcPlatform extends WebxdcPlatform {
 
   @override
   Widget buildHostWidget(String instanceId, {Key? key}) {
-    return _DeferredWebviewHost(
+    return WebxdcSizeObserver(
       key: key,
       builder: () => buildWebView(instanceId),
+      onSizeChanged: (_) => _notifyResize(instanceId),
+    );
+  }
+
+  /// Tells the hosted app that its on-screen size changed, by dispatching
+  /// a DOM `resize` event inside the WebView.
+  ///
+  /// Many mini-apps size themselves (canvas dimensions, flex layouts, game
+  /// viewports) once at load time from `window.innerWidth`/`innerHeight`
+  /// and never re-measure afterwards; without this, resizing the embedding
+  /// card (e.g. maximizing/restoring it) never reaches the app, so it keeps
+  /// rendering for its original size. See doc/design.md §2/§6.
+  void _notifyResize(String instanceId) {
+    final controller = _apps[instanceId]?.controller;
+    if (controller == null) return;
+    unawaited(
+      controller.evaluateJavascript(
+        source: 'window.dispatchEvent(new Event("resize"));',
+      ),
     );
   }
 
@@ -266,6 +285,25 @@ class LinuxWebxdcPlatform extends WebxdcPlatform {
       }));
     }
   };
+
+  // Re-dispatch a window-level 'resize' event whenever the document's own
+  // layout box changes size, for apps that observe their own elements with
+  // ResizeObserver instead of listening for window 'resize' directly. The
+  // host (Dart side) also dispatches 'resize' directly on card/viewport
+  // size changes; this is a cheap, additional signal for that other case.
+  if (typeof ResizeObserver !== 'undefined') {
+    let lastWidth = 0;
+    let lastHeight = 0;
+    new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const {width, height} = entry.contentRect;
+      if (width === lastWidth && height === lastHeight) return;
+      lastWidth = width;
+      lastHeight = height;
+      window.dispatchEvent(new Event('resize'));
+    }).observe(document.documentElement);
+  }
 })();
 ''',
       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
@@ -502,13 +540,4 @@ class LinuxWebxdcPlatform extends WebxdcPlatform {
     }
     return List<WebxdcImportedFile>.unmodifiable(imported);
   }
-}
-
-class _DeferredWebviewHost extends StatelessWidget {
-  const _DeferredWebviewHost({super.key, required this.builder});
-
-  final Widget Function() builder;
-
-  @override
-  Widget build(BuildContext context) => builder();
 }

@@ -49,8 +49,51 @@ void main() {
       final body = await response.transform(utf8.decoder).join();
 
       expect(response.statusCode, HttpStatus.ok);
-      expect(body, '<html></html>');
+      // The HTML is served through the viewport-meta-fallback rewrite (see
+      // below), so it's no longer byte-identical to the input; assert on
+      // the original markup surviving instead.
+      expect(body, contains('<html></html>'));
       expect(response.headers.contentType?.mimeType, 'text/html');
+    });
+
+    test(
+        'injects a default viewport meta tag into served HTML that lacks '
+        'one, so the CSS viewport matches the real rendered size', () async {
+      server = WebxdcServer(files());
+      await server.start();
+
+      final response = await get('/');
+      final body = await response.transform(utf8.decoder).join();
+
+      expect(body, contains('name="viewport"'));
+      expect(body, contains('width=device-width'));
+    });
+
+    test("doesn't duplicate an app-supplied viewport meta tag", () async {
+      server = WebxdcServer({
+        'index.html': Uint8List.fromList(utf8.encode(
+          '<html><head><meta name="viewport" '
+          'content="width=320"></head></html>',
+        )),
+      });
+      await server.start();
+
+      final response = await get('/');
+      final body = await response.transform(utf8.decoder).join();
+
+      expect('viewport'.allMatches(body).length, 1);
+      expect(body, contains('width=320'));
+    });
+
+    test('leaves non-HTML responses untouched by the viewport rewrite',
+        () async {
+      server = WebxdcServer(files());
+      await server.start();
+
+      final response = await get('/app.js');
+      final body = await response.transform(utf8.decoder).join();
+
+      expect(body, 'console.log(1);');
     });
 
     test('serves nested/known files with the correct content type', () async {

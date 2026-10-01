@@ -109,8 +109,12 @@ class WebxdcWebDocumentBuilder {
     );
 
     final csp = _contentSecurityPolicy(config.requestInternetAccess);
+    final viewportMeta = _viewportMetaPattern.hasMatch(rewritten)
+        ? ''
+        : _defaultViewportMetaTag;
     final head =
         '<meta http-equiv="Content-Security-Policy" content="$csp">'
+        '$viewportMeta'
         '<script>${_shim(config)}</script>';
     final headStart = RegExp(r'<head\b[^>]*>', caseSensitive: false);
     if (headStart.hasMatch(rewritten)) {
@@ -121,6 +125,18 @@ class WebxdcWebDocumentBuilder {
     }
     return '<!doctype html><html><head>$head</head><body>$rewritten</body></html>';
   }
+
+  /// A sensible default `<meta name="viewport">` tag, injected when the
+  /// app's own `index.html` doesn't already define one, so the CSS
+  /// viewport inside the sandboxed iframe always matches its actual
+  /// rendered size instead of an engine-specific desktop default.
+  static const String _defaultViewportMetaTag =
+      '<meta name="viewport" content="width=device-width, initial-scale=1">';
+
+  static final RegExp _viewportMetaPattern = RegExp(
+    '''<meta[^>]+name\\s*=\\s*["']viewport["']''',
+    caseSensitive: false,
+  );
 
   static String _contentSecurityPolicy(bool requestInternetAccess) {
     final externalSources = requestInternetAccess ? ' https: http:' : '';

@@ -48,7 +48,11 @@ void main() {
       final response = await _get(platform.portOf('instance-1'), '/');
       final body = await response.transform(utf8.decoder).join();
       expect(response.statusCode, HttpStatus.ok);
-      expect(body, '<html>hi</html>');
+      // The HTML is served through the viewport-meta-fallback rewrite (see
+      // WebxdcLocalServer.injectViewportMetaIfMissing), so it's no longer
+      // byte-identical to the input; assert on the original markup
+      // surviving instead.
+      expect(body, contains('<html>hi</html>'));
     });
 
     test('rejects a file tree without index.html', () async {

@@ -119,5 +119,30 @@ void main() {
       expect(document, startsWith('<!doctype html><html><head>'));
       expect(document, contains('<p>Standalone</p>'));
     });
+
+    test('injects a default viewport meta tag when the app has none, so the '
+        'sandboxed iframe always matches its real rendered size', () {
+      final document = WebxdcWebDocumentBuilder.build(
+        indexHtml: '<html><head></head><body></body></html>',
+        assetUrls: const <String, String>{},
+        config: config,
+      );
+
+      expect(document, contains('name="viewport"'));
+      expect(document, contains('width=device-width'));
+    });
+
+    test("doesn't duplicate an app-supplied viewport meta tag", () {
+      final document = WebxdcWebDocumentBuilder.build(
+        indexHtml:
+            '<html><head><meta name="viewport" '
+            'content="width=320"></head><body></body></html>',
+        assetUrls: const <String, String>{},
+        config: config,
+      );
+
+      expect('viewport'.allMatches(document).length, 1);
+      expect(document, contains('width=320'));
+    });
   });
 }

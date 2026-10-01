@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+
+import 'package:meta/meta.dart';
 
 /// Loopback-only HTTP host for an already-extracted `.xdc` file tree.
 ///
@@ -54,10 +57,12 @@ class WebxdcLocalServer {
 
     final ext = path.split('.').last.toLowerCase();
     String mimeType = 'application/octet-stream';
+    var responseData = fileData;
     switch (ext) {
       case 'html':
       case 'htm':
         mimeType = 'text/html';
+        responseData = injectViewportMetaIfMissing(fileData);
         break;
       case 'js':
         mimeType = 'application/javascript';
@@ -86,8 +91,50 @@ class WebxdcLocalServer {
       buildContentSecurityPolicy(requestInternetAccess),
     );
 
-    request.response.add(fileData);
+    request.response.add(responseData);
     request.response.close();
+  }
+
+  /// A sensible default `<meta name="viewport">` tag, used when a hosted
+  /// app's `index.html` doesn't already define one.
+  ///
+  /// Without this, some WebView engines lay out pages at a desktop-style
+  /// default viewport width (historically ~980px) regardless of the actual
+  /// rendered size, which makes a small embedded card look/behave like a
+  /// tiny window onto a much larger page instead of a genuinely small page.
+  /// See doc/design.md §2/§6 for the full rationale.
+  static const String defaultViewportMetaTag =
+      '<meta name="viewport" content="width=device-width, initial-scale=1">';
+
+  static final RegExp _viewportMetaPattern = RegExp(
+    '''<meta[^>]+name\\s*=\\s*["']viewport["']''',
+    caseSensitive: false,
+  );
+
+  static final RegExp _headOpenTagPattern = RegExp(
+    r'<head\b[^>]*>',
+    caseSensitive: false,
+  );
+
+  /// Returns [htmlBytes] unchanged if it already declares a `viewport`
+  /// meta tag, otherwise returns a copy with [defaultViewportMetaTag]
+  /// inserted right after the opening `<head>` tag (or prepended if the
+  /// document has no `<head>` at all).
+  @visibleForTesting
+  static Uint8List injectViewportMetaIfMissing(Uint8List htmlBytes) {
+    final html = utf8.decode(htmlBytes, allowMalformed: true);
+    if (_viewportMetaPattern.hasMatch(html)) {
+      return htmlBytes;
+    }
+    final headMatch = _headOpenTagPattern.firstMatch(html);
+    final injected = headMatch != null
+        ? html.replaceRange(
+            headMatch.end,
+            headMatch.end,
+            defaultViewportMetaTag,
+          )
+        : '$defaultViewportMetaTag$html';
+    return Uint8List.fromList(utf8.encode(injected));
   }
 
   /// Builds the `Content-Security-Policy` header value used for every

@@ -596,3 +596,33 @@ Platform-specific test scoping follows `AGENTS.md`.
   implementation choice rather than a hard spec requirement, and this design
   leaves the plugin's own limit (if any) as a later decision, likely exposed
   as a host-app-configurable option rather than hardcoded.
+- **Hosted apps are now told when their on-screen size changes, and get a
+  viewport fallback.** Previously, resizing the embedding card/window (e.g.
+  a host app maximizing/restoring it) only resized the native WebView/iframe
+  box itself — the hosted page inside it was never told, so many mini apps
+  (which size canvases/layouts once from `window.innerWidth`/`innerHeight`
+  at load time and never re-measure) kept rendering for their original,
+  often small, size. Two independent fixes address this:
+  - `flutter_webxdc_webview` and `flutter_webxdc_linux` now wrap their
+    `buildHostWidget` output in the shared
+    `WebxdcSizeObserver` (`flutter_webxdc_platform_interface`), which
+    dispatches a DOM `window` `resize` event inside the WebView via
+    `evaluateJavascript` whenever the widget's laid-out box actually
+    changes size. Their injected JS bridge also re-dispatches `resize` from
+    a `ResizeObserver` on `document.documentElement`, for apps that observe
+    their own layout instead of listening for `window`'s `resize` directly.
+    Flutter Web's sandboxed `<iframe>` already receives a native `resize`
+    event from the browser when its own box changes, so no equivalent
+    wiring was needed there.
+  - `WebxdcLocalServer` (serving HTML to the WebView/Linux hosts) and
+    `WebxdcWebDocumentBuilder` (building the Web host's sandboxed iframe
+    document) both now inject a default
+    `<meta name="viewport" content="width=device-width, initial-scale=1">`
+    into served/built HTML that doesn't already declare one, so the CSS
+    viewport always matches the real rendered box instead of an
+    engine-specific desktop-width default.
+  Host applications embedding a small default card (rather than a
+  maximized one) should still expect some mini apps — those that neither
+  listen for `resize`/`ResizeObserver` nor use responsive CSS — to render
+  for whatever size they first saw; this fix addresses the common case of
+  apps that do re-measure but were never actually told to.
