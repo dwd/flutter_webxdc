@@ -7,3 +7,10 @@
   picker for `importFiles`.
 * Add VM-runnable protocol/document-builder tests. Browser DOM behavior is
   additionally checked by the root package's `flutter build web` validation.
+* Fix: `WebxdcWebDocumentBuilder` now neutralizes an app's conventional
+  `<script src="webxdc.js">` reference (with or without a leading `/` or
+  `./`) instead of leaving it untouched. Previously that tag resolved
+  against the real hosting page's origin and tried to fetch over the
+  network, which the injected CSP correctly blocked - surfacing as the app
+  silently failing to load instead of using the already-injected inline
+  `window.webxdc` shim.

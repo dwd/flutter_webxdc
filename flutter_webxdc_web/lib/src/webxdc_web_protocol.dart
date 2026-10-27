@@ -102,6 +102,24 @@ class WebxdcWebDocumentBuilder {
         final normalized = original.startsWith('./')
             ? original.substring(2)
             : original;
+        // Per the WebXDC convention, apps reference the host-provided
+        // `webxdc.js` entry point by filename (optionally with a leading
+        // `/`), expecting it to be supplied by the host rather than bundled
+        // in the archive. Since this implementation injects the equivalent
+        // `window.webxdc` shim inline (see [_shim]), neutralize any such
+        // reference so the sandboxed iframe never attempts a real network
+        // fetch for it (which the injected CSP would otherwise block,
+        // surfacing as a confusing "app failed to load" state).
+        final strippedLeadingSlash = normalized.startsWith('/')
+            ? normalized.substring(1)
+            : normalized;
+        if (strippedLeadingSlash.toLowerCase() == 'webxdc.js') {
+          // An empty `src`/`href` would resolve to the document's own URL
+          // and re-fetch it; point at an inert empty script/data URL instead
+          // so the tag becomes a harmless no-op.
+          return '${match.group(1)}=${match.group(2)}data:text/javascript,'
+              '${match.group(2)}';
+        }
         final replacement = assetUrls[normalized];
         if (replacement == null) return match.group(0)!;
         return '${match.group(1)}=${match.group(2)}$replacement${match.group(2)}';

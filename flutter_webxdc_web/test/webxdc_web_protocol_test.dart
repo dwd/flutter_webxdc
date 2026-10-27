@@ -132,6 +132,28 @@ void main() {
       expect(document, contains('width=device-width'));
     });
 
+    test(
+      'neutralizes a conventional src="webxdc.js" reference instead of '
+      'letting it hit the real network (the injected CSP would otherwise '
+      'block it, surfacing as a confusing app-load failure)',
+      () {
+        final document = WebxdcWebDocumentBuilder.build(
+          indexHtml: '''
+<html><head><script src="webxdc.js"></script>
+<script src="/webxdc.js"></script>
+<script src="./webxdc.js"></script></head>
+<body></body></html>''',
+          assetUrls: const <String, String>{},
+          config: config,
+        );
+
+        expect(document, isNot(contains('src="webxdc.js"')));
+        expect(document, isNot(contains('src="/webxdc.js"')));
+        expect(document, isNot(contains('src="./webxdc.js"')));
+        expect('data:text/javascript,'.allMatches(document).length, 3);
+      },
+    );
+
     test("doesn't duplicate an app-supplied viewport meta tag", () {
       final document = WebxdcWebDocumentBuilder.build(
         indexHtml:
